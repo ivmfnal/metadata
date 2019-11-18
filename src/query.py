@@ -1,4 +1,4 @@
-from expressions import Expression
+from expressions2 import Expression
 import psycopg2, sys, getopt
 import random
 
@@ -11,60 +11,50 @@ def sample(inputs, params):
         if x >= 1.0:
             x -= 1.0
             yield f
+            
+filters = dict(sample = sample)
 
 connstr = sys.argv[1]
 
 conn = psycopg2.connect(connstr)
 
-exp = Expression(conn, 
-    [   "minus",
-        [   "from", "test:Dataset1" ],
-        [   "from", "test:Dataset2"  ]
-    ]
-)
+queries = [
+        ("minus",    
+        """
+                dataset Dataset1 - dataset Dataset2
+        """), 
+
+        ("union",    """
+                [
+                    dataset test:Dataset1, 
+                    dataset test:Dataset2
+                ]
+        """),
+        
+        ("meta_filter, interaection", """
+            {   
+                dataset test:Dataset1, 
+                dataset test:Dataset2
+            } 
+            where i > 10
+        """),
     
-exp2 = Expression(conn, 
-    [ "filter", "sample", [0.75], 
-	    [   "from", "test:Dataset1"	]
-    ],
-    {"sample":sample}
-)
+        ("sample",   
+        """
+                filter sample(0.5) (dataset test:Dataset3 where b == true)
+        """
+        ),
     
-exp2 = Expression(conn, 
-    [   "from", "test:Dataset2"  ]
-)
+    
+        ("meta int", """
+                dataset test:Dataset3 where i=5
+        """)
+]
 
-
-queries = {
-	"minus":	Expression(conn,
-	    [   "minus",
-		[   "from", "test:Dataset1" ],
-		[   "from", "test:Dataset2"  ]
-	    ]
-	),
-	"union":	Expression(conn, 
-	    [   "or",
-		[   "from", "test:Dataset1" ],
-		[   "from", "test:Dataset2"  ]
-	    ]
-	),
-	"sample":	Expression(conn, 
-	    [ "filter", "sample", [0.5], 
-		    [   "from", "test:Dataset3"	]
-	    ],
-	    {"sample":sample}
-	),
-        "meta int":	Expression(conn,
-		[ "from", "test:Dataset3", ["i", "=", 5] ]
-	),
-        "meta bool":	Expression(conn,
-		[ "from", "test:Dataset3", ["b", "=", True] ]
-	)
-}
-
-for qn, q in sorted(queries.items()):
-	out = list(q())
-	print (qn,":   ",sorted([f.Name for f in out]))
+for qn, qtext in queries:
+    exp = Expression(conn, qtext, default_namespace = "test")
+    out = list(exp.evaluate(filters))
+    print (qn,":   ",sorted([f.Name for f in out]))
 
 
         

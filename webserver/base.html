@@ -1,0 +1,45 @@
+<html>
+
+<head>
+    <style type="text/css">
+        td, tr {
+            vertical-align: top
+        }
+        div#content {
+            margin-right: 30px;
+            margin-left: 30px;
+            margin-top: 20px;
+        }
+        
+        table.data {
+            border-collapse: collapse;
+        }
+        
+        .placement td, th {
+            padding: 20px;
+        } 
+            
+        .data td, .data th {
+            padding: 5px 10px;
+            border: 1px solid gray;
+        }
+
+        textarea {
+            font: 14px courier;
+            }
+            
+        input {
+            font: 400 14px verdana;
+        }
+        
+    </style>
+    {% block html_head %}{% endblock %}
+</head>
+
+<body>
+    <h1>{% block headline %}{% endblock %}</h1>
+    
+    <div id=content>{% block content %}{% endblock %}</div>
+</body>
+
+</html>

@@ -2,6 +2,10 @@ from webpie import WPApp, WPHandler
 import psycopg2, json
 from dbobjects import DBFile, DBDataset
 from wsdbtools import ConnectionPool
+from urllib.parse import quote_plus, unquote_plus
+
+from py3 import to_str
+from expressions2 import Query
 
 class DataHandler(WPHandler):
 
@@ -70,6 +74,41 @@ class DataHandler(WPHandler):
                 f = DBFile.get(db, namespace=namespace, name=name)
             return f.to_json(with_metadata=with_metadata), "text/json"
             
+    def query(self, request, relpath, format="json", query=None, **args):
+        if query is not None:
+            query_text = unquote_plus(query)
+        elif "query" in request.POST:
+            query_text = request.POST["query"]
+        else:
+            query_text = request.body_file.read()
+        query_text = to_str(query_text or "")
+        if query_text:
+            with self.App.DB.connect() as db:
+                results = Query(db, query_text).run(self.App.filters())
+            url_query = query_text.replace("\n"," ")
+            while "  " in url_query:
+                url_query = url_query.replace("  ", " ")
+            url_query = quote_plus(url_query)
+        else:
+            results = None
+            url_query = None
+        if format == "json":
+            data = [
+                { 
+                    "filename":f.Name, "namespace":f.Namespace,
+                    "fid":f.FID,
+                    "metadata": f.Metadata or {}
+                } for f in results ]
+            data_json = json.dumps(data)
+            resp = (data_json, "text/json")
+        elif format == "html":
+            resp = self.render_to_response("query.html", 
+                query=query_text, url_query=url_query,
+                show_files=results is not None, files=results)
+            resp.content_type = "text/html"
+        return resp
+            
+            
 
         
 class App(WPApp):
@@ -78,6 +117,15 @@ class App(WPApp):
         WPApp.__init__(self, *args)
         self.Cfg = cfg
         self.DB = ConnectionPool(postgres=cfg["database"]["connstr"])
+        self.Filters = {}
+        if "filters" in cfg:
+            filters_mod = __import__(cfg["filters"].get("module", "filters"), 
+                                globals(), locals(), [], 0)
+            for n in cfg["filters"].get("names", []):
+                self.Filters[n] = getattr(filters_mod, n)
+
+    def filters(self):
+        return self.Filters
        
 import yaml, os
 
@@ -87,13 +135,16 @@ if __name__ == "__main__":
     opts = dict(opts)
     config = opts.get("-c", os.environ.get("METADATA_SERVER_CFG"))
     config = yaml.load(open(config, "r"), Loader=yaml.SafeLoader)  
-    print (config)     
-    App(config, DataHandler).run_server(8080)
+    #print (config)     
+    application=App(config, DataHandler)
+    application.initJinjaEnvironment(tempdirs=".")
+    application.run_server(8080)
     
 else:
     # running unser uwsgi
     config = os.environ["METADATA_SERVER_CFG"]
     config = yaml.load(config, Loader=yaml.SafeLoader)       
     application = App(config, DataHandler)
+    
     
         
