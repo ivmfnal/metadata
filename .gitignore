@@ -1,0 +1,6 @@
+.*
+*.bak
+*.bck
+!.gitignore
+*.tabs
+__pycache__
