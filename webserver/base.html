@@ -2,7 +2,10 @@
 
 <head>
     <style type="text/css">
-        td, tr {
+        body, td, th, p, div {
+            font: 14px arial;
+        }
+        td, th {
             vertical-align: top
         }
         div#content {
@@ -38,6 +41,10 @@
 
 <body>
     <h1>{% block headline %}{% endblock %}</h1>
+
+    <p>
+        <a href="/datasets">datasets</a>&nbsp;&nbsp;<a href="/query">query</a>
+    </p>
     
     <div id=content>{% block content %}{% endblock %}</div>
 </body>

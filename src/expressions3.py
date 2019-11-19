@@ -1,71 +1,26 @@
 from dbobjects import DBDataset, DBFile
-import json
+import json, time
 
 from lark import Lark
-from lark import Transformer
+from lark import Transformer, Tree, Token
+from lark.visitors import Interpreter
 import pprint
-
-grammar_brackets = """
-exp:    exp1                                    -> forward
-    | exp "-" exp1                              -> minus
-
-?exp1: "[" exp_list "]"                         -> union
-    | "{" exp_list "}"                          -> intersect
-    | filter_exp                                -> forward
-    | select_exp                                -> forward
-    | dataset_exp                               -> forward
-
-filter_exp:  "filter" CNAME "(" filter_params ")" "(" exp_list ")"         -> filter
-
-exp_list: exp ("," exp)*                             
-
-filter_params:    ( constant ("," constant)* )?                    -> filter_params
-
-?select_exp: exp "where" meta_exp                                  -> meta_filter
-
-?dataset_exp: "dataset" dataset_name ("where" meta_exp)?                    -> dataset
-
-dataset_name: (CNAME ":")? CNAME
-
-?meta_exp:   and_meta                                //-> forward
-    | meta_exp "or" and_meta                        -> meta_or
-    
-?and_meta:   term_meta                               //-> forward
-    | and_meta "and" term_meta                      -> meta_and
-    
-term_meta:  CNAME CMPOP constant                    -> cmp_op
-    | constant "in" CNAME                           -> in_op
-    | "(" meta_exp ")"                              -> forward
-    | "!" term_meta                                 -> meta_not
-    
-constant : SIGNED_FLOAT                             -> float_constant                      
-    | STRING                                        -> string_constant
-    | SIGNED_INT                                    -> int_constant
-    | BOOL                                          -> bool_constant
-
-CMPOP: ">" | "<" | ">=" | "<=" | "==" | "=" | "!="
-
-BOOL: "true" | "false"                              
-
-
-%import common.CNAME
-%import common.SIGNED_INT
-%import common.SIGNED_FLOAT
-%import common.ESCAPED_STRING       -> STRING
-%import common.WS
-%ignore WS
-"""
 
 
 grammar = """
-exp:    term                                    -> forward
-    | exp "-" term                              -> minus
+exp:    term_with_params                                    -> forward
+    | exp "-" term_with_params                              -> minus
+
+term_with_params :  ("with" param_def ("," param_def)*)? term
+
+param_def: CNAME "=" constant
 
 ?term: union                                    -> forward
     | join                                      -> forward
     | filter_exp                                -> forward
     | select_exp                                -> forward
     | dataset_exp                               -> forward
+    | "(" exp ")"                               -> forward
     
 union: "union" "(" exp_list ")"
     | "[" exp_list "]"
@@ -114,6 +69,44 @@ BOOL: "true" | "false"
 %ignore WS
 """
 
+class _ParamsApplier(Interpreter):
+
+    def __init__(self, params):
+        self.Params = params.copy()
+
+    def int_constant(self, tree):
+        return int(tree.children[0].value)
+        
+    def float_constant(self, tree):
+        return float(tree.children[0].value)
+
+    def bool_constant(self, tree):
+        #print("bool_constant:", args, args[0].value)
+        return tree.children[0].value == "true"
+        
+    def string_constant(self, tree):
+        s = tree.children[0].value
+        if s[0] == '"':
+            s = s[1:-1]
+        return s
+        
+    def param_def(self, tree):
+        name = tree.children[0].value
+        value = self.visit(tree.children[1])
+        return (name, value)
+
+    def term_with_params(self, tree):
+        params = [self.visit(c) for c in tree.children[:-1]]
+        params = dict(params)
+        saved_params = self.Params.copy()
+        self.Params.update(params)
+        #print("term_with_params: new params:", self.Params)
+        self.visit(tree.children[-1])           # apply the params to the expression, recursively
+        self.Params = saved_params
+        
+    def dataset_name(self, tree):
+        tree.DefaultNamespace = self.Params.get("namespace")
+        #print("term_with_params: added namespace:", tree.DefaultNamespace)
 
 class _Evaluator(Transformer):
 
@@ -122,6 +115,7 @@ class _Evaluator(Transformer):
         self.Filters = filters
         self.DB = db
         self.DefaultNamespace = default_namespace
+        self.CurrentParams = {}
         
     def int_constant(self, args):
         return int(args[0].value)
@@ -141,6 +135,15 @@ class _Evaluator(Transformer):
         
     def exp_list(self, args):
         return args
+
+    def param_def(self, args):
+        return (args[0].value, args[1])
+        
+    def term_with_params(self, args):
+        exp = args[-1]
+        params_dict = dict(args[:-1])
+        self.CurrentParams = params_dict
+        return exp
         
     def union(self, args):
         expressions = args[0]
@@ -157,6 +160,8 @@ class _Evaluator(Transformer):
                         file_ids.add(f.FID)
                         yield f
         return union_generator(expressions)
+        
+    union.qq = True
 
     def join(self, args):
         expressions = args[0]
@@ -180,15 +185,39 @@ class _Evaluator(Transformer):
         result_ids = left_ids - right_ids
         return (f for f in left_files if f.FID in result_ids)
 
-    def dataset_name(self, args):
+    def __dataset_name(self, args):
         assert len(args) in (1,2)
+        #print("evaluator.dataset_name: args:", args)
         if len(args) == 1:
-            if self.DefaultNamespace is None:
-                raise ValueError("Default namespace is not defined")
-            out = [self.DefaultNamespace, args[0].value]
+            v = args[0].value
+            #print("evaluator.dataset_name: initial v:", v)
+            if ":" in v:
+                out = list(v.split(":", 1))
+            else:
+                if self.DefaultNamespace is None:
+                    raise ValueError("Default namespace is not defined")
+                out = [self.DefaultNamespace, v]
         else:
             out = [args[0].value, args[1].value]
+        #print("evaluator.dataset_name:", out)
         return out
+        
+    def dataset_name(self, tree):
+        args = tree.children
+        assert len(args) in (1,2)
+        #print("evaluator.dataset_name: tree:", tree)
+        #print("evaluator.dataset_name: default namespace:", tree.DefaultNamespace)
+        if len(args) == 1:
+            namespace = tree.DefaultNamespace or self.DefaultNamespace
+            if namespace is None:
+                raise ValueError("Default namespace is not defined")
+            out = [namespace, args[0].value]
+        else:
+            out = [args[0].value, args[1].value]
+        #print("evaluator.dataset_name: returning", out)
+        return out
+        
+    dataset_name.whole_tree = True
         
     def dataset(self, args):
         assert len(args) in (1,2)
@@ -331,8 +360,9 @@ class Query(object):
         self.DefaultNamespace = default_namespace
         
     def run(self, filters={}):
-        t = _Evaluator(self.DB, filters, self.DefaultNamespace)
-        return t.transform(self.Parsed)
+        _ParamsApplier({"namespace":self.DefaultNamespace}).visit(self.Parsed)
+        out = _Evaluator(self.DB, filters, self.DefaultNamespace).transform(self.Parsed)
+        return out
         
         
         

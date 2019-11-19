@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block headline %}Datasets{% endblock %}
+
+{% block content %}
+
+<table class="data">
+	<tr>
+		<th>Namespace</th>
+		<th>Name</th>
+		<th colspan=0>Metadata</th>
+	</tr>
+	{% for f in files %}
+		<tr>
+			<td>{{f.Namespace}}</td><td>{{f.Name}}</td>
+				{% for k, v in f.Metadata.items()|sort %}
+			<td>
+					{{k}}={{v}}
+			</td>
+				{% endfor %}
+		</tr>	
+	{% endfor %}
+</table>
+
+
+{% endblock %}

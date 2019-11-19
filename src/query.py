@@ -1,5 +1,5 @@
-from expressions2 import Expression
-import psycopg2, sys, getopt
+from expressions3 import Query
+import psycopg2, sys, getopt, time
 import random
 
 def sample(inputs, params):
@@ -21,40 +21,42 @@ conn = psycopg2.connect(connstr)
 queries = [
         ("minus",    
         """
-                dataset Dataset1 - dataset Dataset2
+            with namespace="test"
+                (dataset A - dataset B)
         """), 
-
         ("union",    """
                 [
-                    dataset test:Dataset1, 
-                    dataset test:Dataset2
+                    dataset test:A, 
+                    dataset test:B
                 ]
         """),
         
         ("meta_filter, interaection", """
             {   
-                dataset test:Dataset1, 
-                dataset test:Dataset2
+                dataset test:A, 
+                dataset test:B
             } 
             where i > 10
         """),
     
         ("sample",   
         """
-                filter sample(0.5) (dataset test:Dataset3 where b == true)
+                filter sample(0.5) (dataset test:C where b == true)
         """
         ),
     
     
         ("meta int", """
-                dataset test:Dataset3 where i=5
+                dataset test:C where i=5
         """)
 ]
 
 for qn, qtext in queries:
-    exp = Expression(conn, qtext, default_namespace = "test")
-    out = list(exp.evaluate(filters))
-    print (qn,":   ",sorted([f.Name for f in out]))
+    exp = Query(conn, qtext, default_namespace = "t")
+    t0 = time.time()
+    out = list(exp.run(filters))
+    dt = time.time() - t0
+    print (qn,dt," ->   ",sorted([f.Name for f in out]))
 
 
         

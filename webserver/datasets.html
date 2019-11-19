@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block headline %}Datasets{% endblock %}
+
+{% block content %}
+
+<table class="data">
+	<tr>
+		<th>Namespace</th>
+		<th>Name</th>
+		<th>Files</th>
+	</tr>
+	{% for ds in datasets %}
+		<tr><td>{{ds.Namespace}}</td><td>{{ds.Name}}</td>
+                <td><a href="./dataset_files/{{ds.Namespace}}:{{ds.Name}}">{{ds.nfiles}}</a></td></tr>
+	{% endfor %}
+</table>
+
+
+{% endblock %}

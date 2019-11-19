@@ -74,7 +74,7 @@ class DBFile(object):
         c.execute("begin")
         try:
             c.execute("delete from file_attributes where file_id=%s", (self.FID,))
-            print("attr tuples:", attr_tuples)
+            #print("attr tuples:", attr_tuples)
             c.executemany("""insert into file_attributes(file_id, name,
                 int_value, float_value, string_value, bool_value, 
                 int_array, float_array, string_array, bool_array)
@@ -121,7 +121,7 @@ class DBFile(object):
             name = tup[0]
             values = tup[1:]
             meta[name] = first_non_empty(values)
-        print("meta:", meta)
+        #print("meta:", meta)
         return meta
         
     def with_metadata(self):
@@ -195,6 +195,7 @@ class DBDataset(object):
     @staticmethod
     def get(db, namespace, name):
         c = db.cursor()
+        #print(namespace, name)
         c.execute("""select parent_namespace, parent_name
                         from datasets
                         where namespace=%s and name=%s""",
@@ -290,7 +291,15 @@ class DBDataset(object):
                                         """,
                                 (self.Namespace, self.Name))
                 return (DBFile(self.DB, namespace, name, fid=file_id) for file_id, namespace, name in fetch_generator(c))
-                
+        
+
+    @property
+    def nfiles(self):
+        c = self.DB.cursor()
+        c.execute("""select count(*) 
+                        from files_datasets 
+                        where dataset_namespace=%s and dataset_name=%s""", (self.Namespace, self.Name))
+        return c.fetchone()[0]     
     
     def to_jsonable(self):
         return dict(

@@ -1,11 +1,11 @@
 from webpie import WPApp, WPHandler
-import psycopg2, json
+import psycopg2, json, time
 from dbobjects import DBFile, DBDataset
 from wsdbtools import ConnectionPool
 from urllib.parse import quote_plus, unquote_plus
 
 from py3 import to_str
-from expressions2 import Query
+from expressions3 import Query
 
 class DataHandler(WPHandler):
 
@@ -73,8 +73,25 @@ class DataHandler(WPHandler):
             else:
                 f = DBFile.get(db, namespace=namespace, name=name)
             return f.to_json(with_metadata=with_metadata), "text/json"
+
+    def datasets(self, request, relpath, format="html"):
+        with self.App.DB.connect() as db:
+            datasets = DBDataset.list(db)
+        if format == "json":
+            return json.dumps([
+                { "name":ds.Name, "namespace":ds.Namespace } for ds in datasets])
+        else:
+            return self.render_to_response("datasets.html", datasets=datasets)
+
+    def dataset_files(self, request, relpath, format="html"):
+        namespace, name = relpath.split(":",1)
+        with self.App.DB.connect() as db:
+            dataset = DBDataset.get(db, namespace, name)
+            files = sorted(list(dataset.list_files(with_metadata=True)), key=lambda x: (x.Namespace, x.Name))
+        return self.render_to_response("dataset_files.html", files=files)
+	
             
-    def query(self, request, relpath, format="json", query=None, **args):
+    def query(self, request, relpath, format="html", query=None, namespace=None, **args):
         if query is not None:
             query_text = unquote_plus(query)
         elif "query" in request.POST:
@@ -82,9 +99,12 @@ class DataHandler(WPHandler):
         else:
             query_text = request.body_file.read()
         query_text = to_str(query_text or "")
+        if namespace is None:
+            namespace = request.POST.get("namespace")
+        t0 = time.time()
         if query_text:
             with self.App.DB.connect() as db:
-                results = Query(db, query_text).run(self.App.filters())
+                results = Query(db, query_text, default_namespace=namespace or None).run(self.App.filters())
             url_query = query_text.replace("\n"," ")
             while "  " in url_query:
                 url_query = url_query.replace("  ", " ")
@@ -93,6 +113,8 @@ class DataHandler(WPHandler):
             results = None
             url_query = None
         if format == "json":
+            if not results:
+                return "[]", "text/json"
             data = [
                 { 
                     "filename":f.Name, "namespace":f.Namespace,
@@ -102,9 +124,13 @@ class DataHandler(WPHandler):
             data_json = json.dumps(data)
             resp = (data_json, "text/json")
         elif format == "html":
+            files = None if results is None else list(results)
+            runtime = time.time() - t0
             resp = self.render_to_response("query.html", 
                 query=query_text, url_query=url_query,
-                show_files=results is not None, files=results)
+                show_files=files is not None, files=files, 
+                runtime = runtime,
+                namespace=namespace or "")
             resp.content_type = "text/html"
         return resp
             

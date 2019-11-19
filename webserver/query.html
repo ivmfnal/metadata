@@ -1,25 +1,39 @@
 {% extends "base.html" %}
 
-{% block headline %}Query{% endblock %}
+{% block headline %}Metadata Query{% endblock %}
 
 {% block content %}
 
 <table class=placement>
-    <tr><td>Query</td>
+    <tr><td><h3>Query</h3></td>
         <td><form method="post" target=".">
-                <textarea name="query" cols=80 rows=10>{{query}}</textarea>
-        </td>
-    </tr>
-    <tr>
-        <td></td>
-        <td><input type="submit" value="run"></input>
+                <table class="placement">
+                    <!--
+                    <tr>
+                        <td width=10px>Namespace:</td><td width="100%"><input type="text" name="namespace"
+                                value="{{namespace or 'test'}}"/></td>
+                    </tr>
+                    -->
+                    <tr>
+                        <td colspan=2><textarea name="query" cols=80 rows=10>{{query}}</textarea></td>
+                    </tr>
+                    <tr>
+                        <td><input type="submit" value="run"/></td>
+                    </tr>
+                </table>
+            </form>
         </td>
     </tr>
     
     {% if show_files %}
     <tr><td colspan=2><hr/></td></tr>
     <tr>
-        <td>Results<br/><a href="query?format=json&query={{url_query}}">json</a></td>
+        <td>
+            <p><h3>Results</h3></p>
+            <p>{{files|length}} files</p>
+            <p>Runtime:{{"%.3f"|format(runtime)}} seconds</p>
+            <p><a href="query?format=json&query={{url_query}}">json</a></p>
+        </td>
         <td>
             <table class="data">
             <!--
