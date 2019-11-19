@@ -36,6 +36,7 @@ dataset_name: (CNAME ":")? CNAME
 term_meta:  CNAME CMPOP constant                    -> cmp_op
     | constant "in" CNAME                           -> in_op
     | "(" meta_exp ")"                              -> forward
+    | "!" term_meta                                 -> meta_not
     
 constant : SIGNED_FLOAT                             -> float_constant                      
     | STRING                                        -> string_constant
@@ -166,6 +167,10 @@ class _Evaluator(Transformer):
     def forward(self, args):
         assert len(args) == 1
         return args[0]
+        
+    def meta_not(self, args):
+        assert len(args) == 1
+        return ["not", args[0]]
         
     def meta_and(self, args):
         assert len(args) == 2
