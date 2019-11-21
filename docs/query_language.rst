@@ -163,14 +163,18 @@ You can avoid repeting the same namespace using "with" clause. The following are
                 dataset s:C
         }
 
-Each "with" clause has its scope limited to the immediate query it is attached to. For example:
+Each "with" clause has its scope limited to the immediate query it is attached to. For example, the following query
+is invalid:
 
 .. code-block:: sql
 
         with namespace="s"      
                 dataset A - dataset B
-        
-because the namespace "s" is applied to dataset A, but not to "dataset B". The following would work though:
+
+It is invalid becaise the "with" clause applies only to the query it is immediately attached to - "dataset A", 
+but not to "dataset B", so second dataset query lacks the namespace specification for the dataset B.
+
+Here is how it can be corrected:
 
 .. code-block:: sql
 
@@ -195,6 +199,19 @@ And the outer "with" clause can be overridden by the inner clause:
 In this example, datasets A and D will be assumed to be in the namespace "x", and datasets B and C - in
 namespace "y".
 
+Of course, explicit namespace specification overrides the one specified using "with":
+
+.. code-block:: sql
+
+        with namespace = "x"
+                union (
+                        dataset A,
+                        dataset y:B,
+                        dataset C
+                )
+                
+
+This will return union of datasets "x:A", "y:B" and "x:C".
 
 
 
