@@ -4,3 +4,4 @@
 !.gitignore
 *.tabs
 __pycache__
+!.readthedocs.yml
