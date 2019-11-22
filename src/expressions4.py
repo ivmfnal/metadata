@@ -25,12 +25,14 @@ with_clause :  "with" param_def ("," param_def)*
 param_def: CNAME "=" constant
 
 term2   : term                                  -> f_
-        | term "where" meta_exp                 -> metafilter_exp
+        | filterable_term "where" meta_exp                 -> metafilter_exp
 
-?term: union                                    -> f_
+?term   : dataset_exp                               -> f_
+        | filterable_term                           -> f_
+    
+?filterable_term: union                                    -> f_
     | join                                      -> f_
     | filter_exp                                -> f_
-    | dataset_exp                               -> f_
     | "(" exp ")"                               -> f_
     
 union: "union" "(" exp_list ")"
@@ -94,6 +96,28 @@ class Node(object):
     def __add__(self, lst):
         return Node(self.T, self.C + lst, self.V)
 
+    def as_list(self):
+        out = [self.T, self.V]
+        for c in self.C:
+                if isinstance(c, Node):
+                        out.append(c.as_list())
+                else:
+                        out.append(c)
+        return out
+        
+    def _pretty(self, indent=0):
+        out = []
+        out.append("%s%s %s" % (" "*indent, self.T, '' if self.V is None else repr(self.V)))
+        for c in self.C:
+            if isinstance(c, Node):
+                out += c._pretty(indent+1)
+            else:
+                out.append("%s%s" % (" "*(indent+1), repr(c)))
+        return out
+        
+    def pretty(self):
+        return "\n".join(self._pretty())
+
 class Ascender(object):
 
     def walk(self, node):
@@ -108,21 +132,6 @@ class Ascender(object):
         
     def __default(self, node):
         return node
-
-class Descender(object):
-
-    def visit(self, node):
-        node_type, children = node.T, node.C
-        assert isinstance(node, str)
-        method = getattr(self, node_type) if hasattr(self, node_type) else None
-        return method(children, node.V) if method is not None else self.__default(node)
-        
-    def visit_children(self, node):
-        if isinstance(node, Node):
-            return [self.visit(c) for c in nodeC]
-        
-    def __default(self, node):
-        return self.visit_children(node)
 
 class _Converter(Transformer):
     
@@ -188,6 +197,27 @@ class _Converter(Transformer):
         else:
             return Node("union", [left, right])
 
+    def union(self, args):
+        assert len(args) == 1
+        args = args[0]
+        if len(args) == 1:  return args[0]
+        unions = []
+        others = []
+        for a in args:
+            if isinstance(a, Node) and a.T == "union":
+                unions += a[1:]
+            else:
+                others.append(a)
+        return Node("union", unions + others)
+        
+    def mult(self, args):
+        assert len(args) == 2
+        left, right = args
+        if isinstance(left, Node) and left.T == "join":
+            return left + [right]
+        else:
+            return Node("join", [left, right])
+            
     def join(self, args):
         assert len(args) == 1
         args = args[0]
@@ -205,27 +235,6 @@ class _Converter(Transformer):
         assert len(args) == 2
         left, right = args
         return Node("minus", [left, right])
-        
-    def mult(self, args):
-        assert len(args) == 2
-        left, right = args
-        if isinstance(left, Node) and left.T == "join":
-            return left + [right]
-        else:
-            return Node("join", [left, right])
-            
-    def union(self, args):
-        assert len(args) == 1
-        args = args[0]
-        if len(args) == 1:  return args[0]
-        unions = []
-        others = []
-        for a in args:
-            if isinstance(a, Node) and a.T == "union":
-                unions += a[1:]
-            else:
-                others.append(a)
-        return Node("union", unions + others)
         
     def dataset_name(self, args):
         assert len(args) in (1,2)
@@ -281,12 +290,42 @@ class _Converter(Transformer):
         else:
             return Node("meta_or", [left, right])
             
+class _Optimizer(Ascender):
+
+    def meta_filter(self, children, value):
+        assert len(children) == 2
+        query, meta_exp = children
+        return self.apply_meta_exp(query, meta_exp)
+        
+    def apply_meta_exp(self, node, exp):
+        t = node.T
+        if t in ("join", "union"):
+            new_children = [self.apply_meta_exp(c, exp) for c in node.C]
+            return Node(t, new_children)
+        elif t == "minus":
+            assert len(node.C) == 2
+            left, right = node.C
+            return Node(t, [self.apply_meta_exp(left, exp), right])
+        elif t == "filter":
+            return Node("meta_filter", [node, exp])
+        elif t == "dataset":
+            assert len(node.C) == 2
+            ds, meta_exp = node.C
+            if meta_exp is None:
+                new_exp = exp 
+            elif meta_exp.T == "meta_and":
+                new_exp = meta_exp + [exp]
+            else:
+                new_exp = Node("meta_and", [meta_exp, exp])
+            return Node("dataset", [ds, new_exp])
+        else:
+            raise ValueError("Unknown node type in Optimizer.apply_meta_exp: %s" % (node,))
+            
 class _Evaluator(Ascender):
 
-    def __init__(self, db, filters, default_namespace):
+    def __init__(self, db, filters):
         self.Filters = filters
         self.DB = db
-        self.DefaultNamespace = default_namespace
         
     def dataset(self, args, value):
         assert len(args) == 2
@@ -337,7 +376,7 @@ class _Evaluator(Ascender):
         return (f for f in left_files if f.FID in result_ids)
 
     def filter_inputs(self, args, value):
-        return args		# list of iterables
+        return args             # list of iterables
 
     def filter(self, args, value):
         assert len(args) == 3
@@ -423,30 +462,30 @@ class _Evaluator(Ascender):
 
 class Query(object):
 
-    Parser = Lark(grammar, start="exp")
+    _Parser = Lark(grammar, start="exp")
 
-    def __init__(self, db, exp_text, default_namespace = None):
+    def __init__(self, exp_text, default_namespace=None):
         self.Text = exp_text
-        self.Parsed = Query.parse(self.Text)
-        self.Converted = _Converter().convert(self.Parsed, default_namespace)
-        self.DB = db
         self.DefaultNamespace = default_namespace
+        self.Parsed = self.Optimized = None
         
-    @staticmethod
-    def remove_comments(text):
+    def remove_comments(self, text):
         out = []
         for l in text.split("\n"):
             l = l.split('#', 1)[0]
             out.append(l)
         return '\n'.join(out)
-    
-    @staticmethod
-    def parse(text):
-        return Query.Parser.parse(Query.remove_comments(text))
         
-    def run(self, filters={}):
-        out = _Evaluator(self.DB, filters, self.DefaultNamespace).walk(self.Converted)
-        return out
+    def parse(self):
+        tree = self._Parser.parse(self.remove_comments(self.Text))
+        self.Parsed = _Converter().convert(tree, self.DefaultNamespace)
+        self.Optimized = _Optimizer().walk(self.Parsed)
+        return self.Optimized
+
+    def run(self, db, filters={}):
+        if self.Optimized is None:
+            self.parse()
+        return _Evaluator(db, filters).walk(self.Optimized)
         
         
 if __name__ == "__main__":
