@@ -39,9 +39,11 @@ union: "union" "(" exp_list ")"
 join: "join" "(" exp_list ")"
     | "{" exp_list "}"
 
-filter_exp:  "filter" CNAME "(" filter_params ")" "(" exp_list ")"         -> filter
-
 exp_list: exp ("," exp)*                             
+
+filter_exp:  "filter" CNAME "(" filter_params ")" "(" filter_inputs ")"         -> filter
+
+filter_inputs: exp ("," exp)*                             
 
 filter_params:    ( constant ("," constant)* )?                    -> filter_params
 
@@ -78,31 +80,48 @@ BOOL: "true" | "false"
 %ignore WS
 """
 
+class Node(object):
+    def __init__(self, typ, children=[], value=None):
+        self.T = typ
+        self.V = value
+        self.C = children[:]
+
+    def __str__(self):
+        return "<Node %s v=%s c:%d>" % (self.T, self.V, len(self.C))
+
+    __repr__ = __str__
+
+    def __add__(self, lst):
+        return Node(self.T, self.C + lst, self.V)
+
 class Ascender(object):
 
     def walk(self, node):
-        node_type, children = node[0], node[1:]
+        if not isinstance(node, Node):
+            return node
+        node_type, children = node.T, node.C
+        #print("Ascender.walk:", node_type, children)
         assert isinstance(node_type, str)
         children = [self.walk(c) for c in children]
         method = getattr(self, node_type) if hasattr(self, node_type) else None
-        return method(children) if method is not None else self.__default(node_type, children)
+        return method(children, node.V) if method is not None else self.__default(node)
         
-    def __default(self, node_type, children):
-        return [node_type] + children
+    def __default(self, node):
+        return node
 
 class Descender(object):
 
     def visit(self, node):
-        node_type = node[0]
+        node_type, children = node.T, node.C
         assert isinstance(node, str)
-        children = node[1:]
         method = getattr(self, node_type) if hasattr(self, node_type) else None
-        return method(node_type, children) if method is not None else self.__default(node, children)
+        return method(children, node.V) if method is not None else self.__default(node)
         
     def visit_children(self, node):
-        return [self.visit(c) for c in node[1:]]
+        if isinstance(node, Node):
+            return [self.visit(c) for c in nodeC]
         
-    def __default(self, node, children):
+    def __default(self, node):
         return self.visit_children(node)
 
 class _Converter(Transformer):
@@ -134,19 +153,22 @@ class _Converter(Transformer):
     def exp_list(self, args):
         return args
 
+    def filter_inputs(self, args):
+        return Node("filter_inputs", args)
+
     def param_def(self, args):
-        return [args[0].value, args[1]]
+        return (args[0].value, args[1])
 
     def _apply_params(self, params, node):
-        if isinstance(node, (list, tuple)):
+        if isinstance(node, Node):
             #print("_apply_params:", node)
-            if node[0] == "dataset":
-                dataset_name_list = node[1]
-                if dataset_name_list[0] is None and "namespace" in params:
-                    dataset_name_list[0] = params["namespace"]
+            if node.T == "dataset_name":
+                assert len(node.V) == 2
+                if node.V[0] is None and "namespace" in params:
+                    node.V[0] = params["namespace"]
                     #print("_apply_params: applied namespace:", params["namespace"])
             else:
-                for n in node[1:]:
+                for n in node.C:
                     self._apply_params(params, n)        
         return node    
         
@@ -161,10 +183,10 @@ class _Converter(Transformer):
     def add(self, args):
         assert len(args) == 2
         left, right = args
-        if isinstance(left, list) and len(left) and left[0] == "union":
+        if isinstance(left, Node) and left.T == "union":
             return left + [right]
         else:
-            return ["union", left, right]
+            return Node("union", [left, right])
 
     def join(self, args):
         assert len(args) == 1
@@ -173,24 +195,24 @@ class _Converter(Transformer):
         joins = []
         others = []
         for a in args:
-            if isinstance(a, list) and len(a) and a[0] == "join":
-                joins += a[1:]
+            if isinstance(a, Node) and a.T == "join":
+                joins += a.C
             else:
                 others.append(a)
-        return ["join"] + joins + others
+        return Node("join", joins + others)
         
     def subtract(self, args):
         assert len(args) == 2
         left, right = args
-        return ["minus", left, right]
+        return Node("minus", [left, right])
         
     def mult(self, args):
         assert len(args) == 2
         left, right = args
-        if isinstance(left, list) and len(left) and left[0] == "join":
+        if isinstance(left, Node) and left.T == "join":
             return left + [right]
         else:
-            return ["join", left, right]
+            return Node("join", [left, right])
             
     def union(self, args):
         assert len(args) == 1
@@ -199,65 +221,65 @@ class _Converter(Transformer):
         unions = []
         others = []
         for a in args:
-            if isinstance(a, list) and len(a) and a[0] == "union":
+            if isinstance(a, Node) and a.T == "union":
                 unions += a[1:]
             else:
                 others.append(a)
-        return ["union"] + joins + others
+        return Node("union", unions + others)
         
     def dataset_name(self, args):
         assert len(args) in (1,2)
         if len(args) == 1:
-            return [None, args[0].value]      # no namespace
+            return Node("dataset_name", value=[None, args[0].value])      # no namespace
         else:
-            return [args[0].value, args[1].value]
+            return Node("dataset_name", value=[args[0].value, args[1].value])
 
     def dataset(self, args):
         assert len(args) in (1,2)
         if len(args) == 1:
-            return ["dataset", args[0], None]       # dataset without meta_filter
+            return Node("dataset", [args[0], None])       # dataset without meta_filter
         else:
-            return ["dataset", args[0], args[1]]
+            return Node("dataset", [args[0], args[1]])
         
     def filter(self, args):
         assert len(args) == 3
-        return ["filter", args[0].value, args[1:]]
+        return Node("filter", [args[0].value, args[1], args[2]])
         
     def metafilter_exp(self, args):
         assert len(args) == 2
-        return ["meta_filter"] + args
+        return Node("meta_filter", args)
         
     def filter_params(self, args):
         #print("filter_params:", args)
         return args
         
     def cmp_op(self, args):
-        return [args[1].value, args[0].value, args[2]]
+        return Node(args[1].value, [args[0].value, args[2]])
         
     def in_op(self, args):
-        return ["in", args[1].value, args[0]]
+        return Node("in", [args[1].value, args[0]])
         
     def meta_not(self, args):
         assert len(args) == 1
         #print("meta_not: arg:", args[0])
-        return ["not", args[0]]
+        return Node("not", [args[0]])
         
     def meta_and(self, args):
         assert len(args) == 2
         left, right = args
         #print("meta_and:", left, right)
-        if isinstance(left, list) and len(left) > 0 and left[0] == "meta_and":
+        if isinstance(left, Node) and left.T == "meta_and":
             return left + [right]
         else:
-            return ["meta_and", left, right]
+            return Node("meta_and", [left, right])
         
     def meta_or(self, args):
         assert len(args) == 2
         left, right = args
-        if isinstance(left, list) and len(left) > 0 and left[0] == "meta_or":
+        if isinstance(left, Node) and left.T == "meta_or":
             return left + [right]
         else:
-            return ["meta_or", left, right]
+            return Node("meta_or", [left, right])
             
 class _Evaluator(Ascender):
 
@@ -266,15 +288,17 @@ class _Evaluator(Ascender):
         self.DB = db
         self.DefaultNamespace = default_namespace
         
-    def dataset(self, args):
+    def dataset(self, args, value):
         assert len(args) == 2
-        (namespace, name), meta_exp = args
+        dataset_name, meta_exp = args
+        namespace, name = dataset_name.V
         dataset = DBDataset.get(self.DB, namespace, name)
         condition = None if meta_exp is None else self.meta_exp_to_sql(meta_exp)
         files = dataset.list_files(condition=condition, with_metadata=True)
+        #print ("Evaluator.dataset: files:", files)
         return files
         
-    def union(self, args):
+    def union(self, args, value):
         expressions = args
         if len(expressions) == 1:
             return expressions[0]
@@ -290,7 +314,7 @@ class _Evaluator(Ascender):
                         yield f
         return union_generator(expressions)
         
-    def join(self, args):
+    def join(self, args, value):
         expressions = args
         first = expressions[0]
         if len(expressions) == 1:
@@ -302,7 +326,7 @@ class _Evaluator(Ascender):
             file_ids &= another_ids
         return (f for f in file_list if f.FID in file_ids)
         
-    def minus(self, expressions):
+    def minus(self, expressions, value):
         assert len(expressions) == 2
         left, right = expressions
         #print("minus: left:", left)
@@ -312,23 +336,26 @@ class _Evaluator(Ascender):
         result_ids = left_ids - right_ids
         return (f for f in left_files if f.FID in result_ids)
 
-    def filter(self, args):
+    def filter_inputs(self, args, value):
+        return args		# list of iterables
+
+    def filter(self, args, value):
         assert len(args) == 3
         name, params, inputs = args
-        #print("params:", params)
-        name = name.value
+        #print("Evaluator.filter: inputs:", inputs)
         filter_function = self.Filters[name]
         return filter_function(inputs, params)
         
-    def meta_filter(self, args):
+    def meta_filter(self, args, value):
         assert len(args) == 2
         files, meta_exp = args
         return (f for f in files if self.evaluate_meta_expression(f, meta_exp))
+
+    BOOL_OPS = ("and", "or", "not")
         
     def evaluate_meta_expression(self, f, meta_expression):
-        op = meta_expression[0]
+        op, args = meta_expression.T, meta_expression.C
         if op in self.BOOL_OPS:
-            args = meta_expression[1:]
             if op == 'and':
                 ok = self.evaluate_meta_expression(f, args[0])
                 if ok and args[1:]:
@@ -345,7 +372,7 @@ class _Evaluator(Ascender):
                 raise ValueError("Unrecognized boolean operation '%s'" % (op,))
         else:
             # 
-            op, name, value = meta_expression
+            name, value = args
             attr_value = f.get_attribute(name, None)
             if op == "<":          return attr_value < value
             elif op == ">":        return attr_value > value
@@ -360,8 +387,8 @@ class _Evaluator(Ascender):
                 raise ValueError("Invalid comparison operator '%s' in %s" % (op, meta_expression))
 
     def meta_exp_to_sql(self, meta_expression):
-        op = meta_expression[0]
-        if op in Expression.BOOL_OPS:
+        op, args = meta_expression.T, meta_expression.C
+        if op in self.BOOL_OPS:
             args = meta_expression[1:]
             if op in ('or','and'):
                 return (' ' + op + ' ').join([
@@ -371,7 +398,7 @@ class _Evaluator(Ascender):
             else:
                 raise ValueError("Unrecognized boolean operation '%s'" % (op,))
         else:
-            op, name, value = meta_expression
+            name, value = args
             if op in ('<', '>', '<=', '>=', '==', '=', '!='):
                 sql_op = '=' if op == '==' else op
                 if isinstance(value, bool): colname = "bool_value"
@@ -380,7 +407,7 @@ class _Evaluator(Ascender):
                 elif isinstance(value, str): colname = "string_value"
                 else:
                         raise ValueError("Unrecognized value type %s for attribute %s" % (type(value), name))
-                return "attr.name='%s' and attr.%s %s '%s'" % (name, colname, op, value)
+                return "attr.name='%s' and attr.%s %s '%s'" % (name, colname, sql_op, value)
             elif op == 'in':
                 value, _, name = meta_expression
                 if isinstance(value, bool): colname = "bool_array"
@@ -427,4 +454,5 @@ if __name__ == "__main__":
     tree = Query.Parser.parse(open(sys.argv[1], "r").read())
     converted = _Converter().transform(tree)
     pprint.pprint(converted)
+
         
