@@ -78,7 +78,7 @@ BOOL: "true" | "false"
 %ignore WS
 """
 
-def Ascender(object):
+class Ascender(object):
 
     def walk(self, node):
         node_type, children = node[0], node[1:]
@@ -90,7 +90,7 @@ def Ascender(object):
     def __default(self, node_type, children):
         return [node_type] + children
 
-def Descender(object):
+class Descender(object):
 
     def visit(self, node):
         node_type = node[0]
@@ -105,46 +105,11 @@ def Descender(object):
     def __default(self, node, children):
         return self.visit_children(node)
 
-class _ParamsApplier(Interpreter):
-
-    def __init__(self, params):
-        self.Params = params.copy()
-
-    def int_constant(self, tree):
-        return int(tree.children[0].value)
-        
-    def float_constant(self, tree):
-        return float(tree.children[0].value)
-
-    def bool_constant(self, tree):
-        #print("bool_constant:", args, args[0].value)
-        return tree.children[0].value == "true"
-        
-    def string_constant(self, tree):
-        s = tree.children[0].value
-        if s[0] == '"':
-            s = s[1:-1]
-        return s
-        
-    def param_def(self, tree):
-        name = tree.children[0].value
-        value = self.visit(tree.children[1])
-        return (name, value)
-
-    def term_with_params(self, tree):
-        params = [self.visit(c) for c in tree.children[:-1]]
-        params = dict(params)
-        saved_params = self.Params.copy()
-        self.Params.update(params)
-        #print("term_with_params: new params:", self.Params)
-        self.visit(tree.children[-1])           # apply the params to the expression, recursively
-        self.Params = saved_params
-        
-    def dataset_name(self, tree):
-        tree.DefaultNamespace = self.Params.get("namespace")
-        #print("term_with_params: added namespace:", tree.DefaultNamespace)
-    
 class _Converter(Transformer):
+    
+    def convert(self, tree, default_namespace):
+        tree = self.transform(tree)
+        return self._apply_params({"namespace":default_namespace}, tree)
 
     def f_(self, args):
         assert len(args) == 1
@@ -170,11 +135,25 @@ class _Converter(Transformer):
         return args
 
     def param_def(self, args):
-        return (args[0].value, args[1])
+        return [args[0].value, args[1]]
+
+    def _apply_params(self, params, node):
+        if isinstance(node, (list, tuple)):
+            #print("_apply_params:", node)
+            if node[0] == "dataset":
+                dataset_name_list = node[1]
+                if dataset_name_list[0] is None and "namespace" in params:
+                    dataset_name_list[0] = params["namespace"]
+                    #print("_apply_params: applied namespace:", params["namespace"])
+            else:
+                for n in node[1:]:
+                    self._apply_params(params, n)        
+        return node    
         
     def term_with_params(self, args):
         assert len(args) == 2
-        return ("with", args[0], args[1])
+        params, term = args
+        return self._apply_params(params, term)
         
     def with_clause(self, args):
         return dict(args)
@@ -186,11 +165,24 @@ class _Converter(Transformer):
             return left + [right]
         else:
             return ["union", left, right]
+
+    def join(self, args):
+        assert len(args) == 1
+        args = args[0]
+        if len(args) == 1:  return args[0]
+        joins = []
+        others = []
+        for a in args:
+            if isinstance(a, list) and len(a) and a[0] == "join":
+                joins += a[1:]
+            else:
+                others.append(a)
+        return ["join"] + joins + others
         
     def subtract(self, args):
         assert len(args) == 2
         left, right = args
-        return ("minus", left, right)
+        return ["minus", left, right]
         
     def mult(self, args):
         assert len(args) == 2
@@ -200,39 +192,55 @@ class _Converter(Transformer):
         else:
             return ["join", left, right]
             
-    def join(self, args):
-        return ["mult"] + args
-        
     def union(self, args):
-        return ["plus"] + args
+        assert len(args) == 1
+        args = args[0]
+        if len(args) == 1:  return args[0]
+        unions = []
+        others = []
+        for a in args:
+            if isinstance(a, list) and len(a) and a[0] == "union":
+                unions += a[1:]
+            else:
+                others.append(a)
+        return ["union"] + joins + others
         
     def dataset_name(self, args):
         assert len(args) in (1,2)
-        return tuple(x.value for x in args)
+        if len(args) == 1:
+            return [None, args[0].value]      # no namespace
+        else:
+            return [args[0].value, args[1].value]
 
     def dataset(self, args):
         assert len(args) in (1,2)
-        return tuple(["dataset"] + args)
+        if len(args) == 1:
+            return ["dataset", args[0], None]       # dataset without meta_filter
+        else:
+            return ["dataset", args[0], args[1]]
         
     def filter(self, args):
         assert len(args) == 3
-        return ["filter", args[0].value] + args[1:]
+        return ["filter", args[0].value, args[1:]]
         
     def metafilter_exp(self, args):
         assert len(args) == 2
-        return tuple(["where"] + args)
+        return ["meta_filter"] + args
         
     def filter_params(self, args):
         #print("filter_params:", args)
         return args
         
     def cmp_op(self, args):
-        return (args[1].value, args[0].value, args[2])
+        return [args[1].value, args[0].value, args[2]]
+        
+    def in_op(self, args):
+        return ["in", args[1].value, args[0]]
         
     def meta_not(self, args):
         assert len(args) == 1
         #print("meta_not: arg:", args[0])
-        return ("not", args[0])
+        return ["not", args[0]]
         
     def meta_and(self, args):
         assert len(args) == 2
@@ -251,47 +259,23 @@ class _Converter(Transformer):
         else:
             return ["meta_or", left, right]
             
-
-
-class _Evaluator(Transformer):
+class _Evaluator(Ascender):
 
     def __init__(self, db, filters, default_namespace):
-        Transformer.__init__(self)
         self.Filters = filters
         self.DB = db
         self.DefaultNamespace = default_namespace
-        self.CurrentParams = {}
         
-    def int_constant(self, args):
-        return int(args[0].value)
-        
-    def float_constant(self, args):
-        return float(args[0].value)
-
-    def bool_constant(self, args):
-        #print("bool_constant:", args, args[0].value)
-        return args[0].value == "true"
-        
-    def string_constant(self, args):
-        s = args[0].value
-        if s[0] == '"':
-            s = s[1:-1]
-        return s
-        
-    def exp_list(self, args):
-        return args
-
-    def param_def(self, args):
-        return (args[0].value, args[1])
-        
-    def term_with_params(self, args):
-        exp = args[-1]
-        params_dict = dict(args[:-1])
-        self.CurrentParams = params_dict
-        return exp
+    def dataset(self, args):
+        assert len(args) == 2
+        (namespace, name), meta_exp = args
+        dataset = DBDataset.get(self.DB, namespace, name)
+        condition = None if meta_exp is None else self.meta_exp_to_sql(meta_exp)
+        files = dataset.list_files(condition=condition, with_metadata=True)
+        return files
         
     def union(self, args):
-        expressions = args[0]
+        expressions = args
         if len(expressions) == 1:
             return expressions[0]
         def union_generator(file_lists):
@@ -306,10 +290,8 @@ class _Evaluator(Transformer):
                         yield f
         return union_generator(expressions)
         
-    union.qq = True
-
     def join(self, args):
-        expressions = args[0]
+        expressions = args
         first = expressions[0]
         if len(expressions) == 1:
             return first
@@ -330,51 +312,6 @@ class _Evaluator(Transformer):
         result_ids = left_ids - right_ids
         return (f for f in left_files if f.FID in result_ids)
 
-    def __dataset_name(self, args):
-        assert len(args) in (1,2)
-        #print("evaluator.dataset_name: args:", args)
-        if len(args) == 1:
-            v = args[0].value
-            #print("evaluator.dataset_name: initial v:", v)
-            if ":" in v:
-                out = list(v.split(":", 1))
-            else:
-                if self.DefaultNamespace is None:
-                    raise ValueError("Default namespace is not defined")
-                out = [self.DefaultNamespace, v]
-        else:
-            out = [args[0].value, args[1].value]
-        #print("evaluator.dataset_name:", out)
-        return out
-        
-    def dataset_name(self, tree):
-        args = tree.children
-        assert len(args) in (1,2)
-        #print("evaluator.dataset_name: tree:", tree)
-        #print("evaluator.dataset_name: default namespace:", tree.DefaultNamespace)
-        if len(args) == 1:
-            namespace = tree.DefaultNamespace or self.DefaultNamespace
-            if namespace is None:
-                raise ValueError("Default namespace is not defined")
-            out = [namespace, args[0].value]
-        else:
-            out = [args[0].value, args[1].value]
-        #print("evaluator.dataset_name: returning", out)
-        return out
-        
-    dataset_name.whole_tree = True
-        
-    def dataset(self, args):
-        assert len(args) in (1,2)
-        namespace, name = args[0]
-        dataset = DBDataset.get(self.DB, namespace, name)
-
-        meta_expression = None if len(args) < 2 else args[1]
-        condition = None if not meta_expression else self.meta_exp_to_sql(meta_expression)
-        
-        files = dataset.list_files(condition=condition, with_metadata=True)
-        return files
-        
     def filter(self, args):
         assert len(args) == 3
         name, params, inputs = args
@@ -388,41 +325,6 @@ class _Evaluator(Transformer):
         files, meta_exp = args
         return (f for f in files if self.evaluate_meta_expression(f, meta_exp))
         
-    def filter_params(self, args):
-        #print("filter_params:", args)
-        return args
-        
-    def cmp_op(self, args):
-        return [args[0].value, args[1], args[2]]
-        
-    def forward(self, args):
-        assert len(args) == 1
-        return args[0]
-        
-    def meta_not(self, args):
-        assert len(args) == 1
-        #print("meta_not: arg:", args[0])
-        return ["not", args[0]]
-        
-    def meta_and(self, args):
-        assert len(args) == 2
-        left, right = args
-        #print("meta_and:", left, right)
-        if isinstance(left, list) and len(left) > 0 and left[0] == "and":
-            return left + [right]
-        else:
-            return ["and", left, right]
-        
-    def meta_or(self, args):
-        assert len(args) == 2
-        left, right = args
-        if isinstance(left, list) and len(left) > 0 and left[0] == "or":
-            return left + [right]
-        else:
-            return ["or", left, right]
-
-    BOOL_OPS = ("and", "or", "not")
-
     def evaluate_meta_expression(self, f, meta_expression):
         op = meta_expression[0]
         if op in self.BOOL_OPS:
@@ -442,8 +344,8 @@ class _Evaluator(Transformer):
             else:
                 raise ValueError("Unrecognized boolean operation '%s'" % (op,))
         else:
-            # <attr> <cmp> <value>
-            name, op, value = meta_expression
+            # 
+            op, name, value = meta_expression
             attr_value = f.get_attribute(name, None)
             if op == "<":          return attr_value < value
             elif op == ">":        return attr_value > value
@@ -457,21 +359,19 @@ class _Evaluator(Transformer):
             else:
                 raise ValueError("Invalid comparison operator '%s' in %s" % (op, meta_expression))
 
-    @staticmethod                
-    def meta_exp_to_sql(meta_expression):
+    def meta_exp_to_sql(self, meta_expression):
         op = meta_expression[0]
         if op in Expression.BOOL_OPS:
             args = meta_expression[1:]
             if op in ('or','and'):
                 return (' ' + op + ' ').join([
-                    '(' + Expression.meta_exp_to_sql(part) + ')' for part in args])
+                    '(' + self.meta_exp_to_sql(part) + ')' for part in args])
             elif op == 'not':
                 return ' not (' + self.meta_exp_to_sql(args[1]) + ')'
             else:
                 raise ValueError("Unrecognized boolean operation '%s'" % (op,))
         else:
-            # <attr> <cmp> <value>
-            name, op, value = meta_expression
+            op, name, value = meta_expression
             if op in ('<', '>', '<=', '>=', '==', '=', '!='):
                 sql_op = '=' if op == '==' else op
                 if isinstance(value, bool): colname = "bool_value"
@@ -501,6 +401,7 @@ class Query(object):
     def __init__(self, db, exp_text, default_namespace = None):
         self.Text = exp_text
         self.Parsed = Query.parse(self.Text)
+        self.Converted = _Converter().convert(self.Parsed, default_namespace)
         self.DB = db
         self.DefaultNamespace = default_namespace
         
@@ -517,8 +418,7 @@ class Query(object):
         return Query.Parser.parse(Query.remove_comments(text))
         
     def run(self, filters={}):
-        _ParamsApplier({"namespace":self.DefaultNamespace}).visit(self.Parsed)
-        out = _Evaluator(self.DB, filters, self.DefaultNamespace).transform(self.Parsed)
+        out = _Evaluator(self.DB, filters, self.DefaultNamespace).walk(self.Converted)
         return out
         
         
