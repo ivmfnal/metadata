@@ -14,6 +14,95 @@ def first_not_empty(lst):
             return v
     else:
         return val
+        
+def gather_metadata(self, db, g):
+    f = None
+    meta = {}
+    for tup in g:
+            fid, ns, n, an = tup[:4]
+            v = first_not_empty(tup[4:])
+            if f is not None and fid != f.FID:
+                    yield f
+                    f = None
+            if f is None:
+                    f = DBFile(db, fid=fid, name=n, namespace=ns)
+                    f.Metadata = {}
+            f.Metadata[an] = v
+    if f is not None:
+            yield f
+            
+
+
+class DBFileSet(object):
+    
+    def __init__(self, db, files):
+        self.DB = db
+        self.Files = files
+        
+    @staticmethod
+    def from_shallow(db, g):
+        # g is genetator of tuples (fid, namespace, name)
+        return DBFileSet(db, (
+            DBFile(db, namespace, name, fid=fid) for fid, namespace, name in g
+        ))
+        
+    @staticmethod
+    def from_metadata_tuples(db, g):
+        def gather_meta(g):
+            f = None
+            meta = {}
+            for tup in g:
+                    fid, ns, n, an = tup[:4]
+                    v = first_not_empty(tup[4:])
+                    if f is not None and fid != f.FID:
+                            yield f
+                            f = None
+                    if f is None:
+                            f = DBFile(db, fid=fid, name=n, namespace=ns)
+                            f.Metadata = {}
+                    f.Metadata[an] = v
+            if f is not None:
+                    yield f
+        return DBFileSet(db, gather_meta(g))
+        
+    def __iter__(self):
+        return self.Files
+            
+    def parents(self, with_metadata = False):
+        return self._relationship("parent", with_metadata)
+            
+    def children(self, with_metadata = False):
+        return self._relationship("child", with_metadata)
+            
+    def _relationship(self, rel, with_metadata):
+        if rel == "children":
+            join = "f.id = pc.child_id and pc.parent_id in"
+        else:
+            join = "f.id = pc.parent_id and pc.child_id in"
+            
+        c = db.cursor()
+        file_ids = list(f.FID for f in self.Files)
+        if with_metadata:
+            c.execute(f"""select distinct f.id, f.namespace, f.name, 
+                                a.name,
+                                a.int_array, a.float_array, a.string_array, a.bool_array,
+                                a.int_value, a.float_value, a.string_value, a.bool_value
+                        from files f, parent_child pc, file_attributes a
+                        where a.file_id = f.id
+                                and {join} %s
+                        order by f.id
+                        """,
+                (file_ids,))
+            return self.gather_metadata(self.DB, fetch_generator(c))
+        else:
+            c.execute(f"""select distinct f.id, f.namespace, f.name 
+                        from files f, parent_child pc
+                        where 
+                                and {join} %s
+                        """,
+                (file_ids,))
+            return DBFileSet.from_shallow(self.DB, fetch_generator(c))
+            
 
 class DBFile(object):
 
@@ -142,7 +231,7 @@ class DBFile(object):
         else:
             c.execute("""select fid, namespace, name from files
                 where namespace=%s""", (namespace,))
-        return (DBFile(db, namespace, name, fid=fid) for fid, namespace, name in fetch_generator(c))
+        return DBFileSet.from_shallow(self.DB, fetch_generator(c))
         
     def has_attribute(self, attrname):
         return attrname in self.Metadata
@@ -220,23 +309,8 @@ class DBDataset(object):
                 namespace, name, parent_namespace, parent_name in fetch_generator(c))
 
 
-    def gather_metadata(self, db, g):
-        f = None
-        meta = {}
-        for tup in g:
-                fid, ns, n, an = tup[:4]
-                v = first_not_empty(tup[4:])
-                if f is not None and fid != f.FID:
-                        yield f
-                        f = None
-                if f is None:
-                        f = DBFile(db, fid=fid, name=n, namespace=ns)
-                        f.Metadata = {}
-                f.Metadata[an] = v
-        if f is not None:
-                yield f
-                
-    def list_files(self, recursive=False, with_metadata = False, condition=None):
+    def list_files(self, recursive=False, with_metadata = False, condition=None, relationship="self"):
+        # relationship is ignored for now
         c = self.DB.cursor()
         if with_metadata:
                 if condition:
@@ -268,7 +342,7 @@ class DBDataset(object):
                                         order by f.id
                                         """,
                                 (self.Namespace, self.Name))
-                return self.gather_metadata(self.DB, fetch_generator(c))
+                return DBFileSet.from_metadata_tuples(self.DB, fetch_generator(c))
         else:
                 if condition:
                         c.execute(f"""select files.id, files.namespace, files.name 
@@ -290,8 +364,8 @@ class DBDataset(object):
                                                 and fd.dataset_namespace=%s and fd.dataset_name=%s
                                         """,
                                 (self.Namespace, self.Name))
-                return (DBFile(self.DB, namespace, name, fid=file_id) for file_id, namespace, name in fetch_generator(c))
-        
+                return DBFileSet.from_shallow(self.DB, fetch_generator(c))
+
 
     @property
     def nfiles(self):
@@ -314,7 +388,51 @@ class DBDataset(object):
         
 
         
+class DBNamedQuery(object):
+
+    def __init__(self, db, namespace, name, text):
+        assert namespace is not None and name is not None
+        self.DB = db
+        self.Namespace = namespace
+        self.Name = name
+        self.Text = text
         
+    def save(self):
+        self.DB.cursor().execute("""
+            insert into queries(namespace, name, query) values(%s, %s, %s)
+                on conflict(namespace, name) 
+                    do update set query=%s;
+            commit""",
+            (self.Namespace, self.Name, self.Text, self.Text))
+        return self
+            
+    @staticmethod
+    def get(db, namespace, name):
+        c = db.cursor()
+        #print(namespace, name)
+        c.execute("""select query
+                        from queries
+                        where namespace=%s and name=%s""",
+                (namespace, name))
+        (text,) = c.fetchone()
+        return DBNamedQuery(db, namespace, name, text)
+        
+    @staticmethod
+    def list(db, namespace=None):
+        c = db.cursor()
+        if namespace is not None:
+            c.execute("""select namespace, name, query
+                        from queries
+                        where namespace=%s""",
+                (namespace,)
+            )
+        else:
+            c.execute("""select namespace, name, query
+                        from queries"""
+            )
+        return (DBNamedQuery(db, namespace, name, text) for namespace, name, text in fetch_generator(c))
+        
+
         
         
     
