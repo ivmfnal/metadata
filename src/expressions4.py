@@ -316,18 +316,18 @@ class _Converter(Transformer):
         assert len(args) == 2
         left, right = args
         #print("meta_and:", left, right)
-        if isinstance(left, Node) and left.T == "meta_and":
+        if isinstance(left, Node) and left.T == "and":
             return left + [right]
         else:
-            return Node("meta_and", [left, right])
+            return Node("and", [left, right])
         
     def meta_or(self, args):
         assert len(args) == 2
         left, right = args
-        if isinstance(left, Node) and left.T == "meta_or":
+        if isinstance(left, Node) and left.T == "or":
             return left + [right]
         else:
-            return Node("meta_or", [left, right])
+            return Node("or", [left, right])
             
 class _Assembler(Ascender):
 
@@ -389,10 +389,10 @@ class _Optimizer(Ascender):
             ds, meta_exp = node.C
             if meta_exp is None:
                 new_exp = exp 
-            elif meta_exp.T == "meta_and":
+            elif meta_exp.T == "and":
                 new_exp = meta_exp + [exp]
             else:
-                new_exp = Node("meta_and", [meta_exp, exp])
+                new_exp = Node("and", [meta_exp, exp])
             return Node("dataset", [ds, new_exp])
         else:
             raise ValueError("Unknown node type in Optimizer.apply_meta_exp: %s" % (node,))
@@ -481,25 +481,31 @@ class _Evaluator(Ascender):
         files, meta_exp = args
         return (f for f in files if self.evaluate_meta_expression(f, meta_exp))
         
-    BOOL_OPS = ("meta_and", "meta_or", "meta_not")
-        
+    def _eval_meta_bool(self, f, bool_op, parts):
+        assert len(parts) > 0
+        p0 = parts[0]
+        rest = parts[1:]
+        ok = self.evaluate_meta_expression(f, p0)
+        if bool_op == "and":
+            if len(rest) and ok:
+                ok = self._eval_meta_bool(f, bool_op, rest)
+            return ok
+        elif bool_op == "or":
+            if len(rest) and not ok:
+                ok = self._eval_meta_bool(f, bool_op, rest)
+            return ok
+        elif bool_op == "not":
+            assert len(rest) == 0
+            return not ok
+        else:
+            raise ValueError("Unrecognized boolean operation '%s'" % (op,))
+            
+    BOOL_OPS = ("and", "or", "not")
+
     def evaluate_meta_expression(self, f, meta_expression):
         op, args = meta_expression.T, meta_expression.C
         if op in self.BOOL_OPS:
-            if op == 'meta_and':
-                ok = self.evaluate_meta_expression(f, args[0])
-                if ok and args[1:]:
-                    ok = self.evaluate_meta_expression(f, ["meta_and"] + args[1:])
-                return ok
-            elif op == 'meta_or':
-                ok = self.evaluate_meta_expression(f, args[0])
-                if not ok and args[1:]:
-                    ok = self.evaluate_meta_expression(f, ["meta_or"] + args[1:])
-                return ok
-            elif op == 'meta_not':
-                return not self.evaluate_meta_expression(f, args[0])
-            else:
-                raise ValueError("Unrecognized boolean operation '%s'" % (op,))
+            return self._eval_meta_bool(f, op, args)
         else:
             # 
             name, value = args
@@ -519,11 +525,11 @@ class _Evaluator(Ascender):
     def meta_exp_to_sql(self, meta_expression):
         op, args = meta_expression.T, meta_expression.C
         if op in self.BOOL_OPS:
-            if op in ('meta_or','meta_and'):
-                sql_op = {"meta_or":"or", "meta_and":"and"}[op]
+            if op in ('or','and'):
+                sql_op = op
                 return (' ' + sql_op + ' ').join([
                     '(' + self.meta_exp_to_sql(part) + ')' for part in args])
-            elif op == 'meta_not':
+            elif op == 'not':
                 return ' not (' + self.meta_exp_to_sql(args[1]) + ')'
             else:
                 raise ValueError("Unrecognized boolean operation '%s'" % (op,))
