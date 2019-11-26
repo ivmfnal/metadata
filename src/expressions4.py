@@ -1,4 +1,4 @@
-from dbobjects import DBDataset, DBFile
+from dbobjects import DBDataset, DBFile, DBNamedQuery
 import json, time
 
 from lark import Lark
@@ -32,10 +32,10 @@ term2   : term                                      -> f_
     
 ?filterable_term: union                                    -> f_
     | join                                      -> f_
-    | "filter" CNAME "(" filter_params ")" "(" filter_inputs ")"         -> filter
+    | "filter" CNAME "(" filter_params ")" "(" exp_list ")"         -> filter
     | "parents" "(" exp ")"                     -> parents_of
     | "children" "(" exp ")"                    -> children_of
-    | "query" CNAME                             -> named_query
+    | "query" namespace_name                    -> named_query
     | "(" exp ")"                               -> f_
 
 union: "union" "(" exp_list ")"
@@ -46,13 +46,11 @@ join: "join" "(" exp_list ")"
 
 exp_list: exp ("," exp)*                             
 
-filter_inputs: exp ("," exp)*                             
-
 filter_params:    ( constant ("," constant)* )?                    -> filter_params
 
-dataset_exp: "dataset" dataset_name ("where" meta_exp)?           -> dataset
+dataset_exp: "dataset" namespace_name ("where" meta_exp)?           -> dataset
 
-dataset_name: (CNAME ":")? CNAME
+namespace_name: (CNAME ":")? CNAME
 
 ?meta_exp:   and_meta                                
     | meta_exp "or" and_meta                        -> meta_or
@@ -111,9 +109,9 @@ class Node(object):
         out.append("%s%s %s" % (" "*indent, self.T, '' if self.V is None else repr(self.V)))
         for c in self.C:
             if isinstance(c, Node):
-                out += c._pretty(indent+1)
+                out += c._pretty(indent+2)
             else:
-                out.append("%s%s" % (" "*(indent+1), repr(c)))
+                out.append("%s%s" % (" "*(indent+2), repr(c)))
         return out
         
     def pretty(self):
@@ -124,6 +122,7 @@ class Node(object):
                         for c in self.C]
         )
         d["///class///"] = "node"
+        return d
         
     def to_json(self):
         return json.dumps(self.jsonable())
@@ -150,12 +149,16 @@ class Ascender(object):
         node_type, children = node.T, node.C
         #print("Ascender.walk:", node_type, children)
         assert isinstance(node_type, str)
+        #print("walk: in:", node.pretty())
         children = [self.walk(c) for c in children]
+        #print("walk: children->", children)
         method = getattr(self, node_type) if hasattr(self, node_type) else None
-        return method(children, node.V) if method is not None else self.__default(node)
+        out = method(children, node.V) if method is not None else self.__default(node, children)
+        #print("walk: out:", out.pretty())
+        return out
         
-    def __default(self, node):
-        return node
+    def __default(self, node, children):
+        return Node(node.T, children=children, value=node.V)
 
 class _Converter(Transformer):
     
@@ -183,6 +186,10 @@ class _Converter(Transformer):
             s = s[1:-1]
         return s
         
+    def named_query(self, args):
+        assert len(args) == 1
+        return Node("named_query", value = args[0].V)       # value = (namespace, name) - tuple
+        
     def exp_list(self, args):
         return args
 
@@ -195,7 +202,7 @@ class _Converter(Transformer):
     def _apply_params(self, params, node):
         if isinstance(node, Node):
             #print("_apply_params:", node)
-            if node.T == "dataset_name":
+            if node.T == "namespace_name":
                 assert len(node.V) == 2
                 if node.V[0] is None and "namespace" in params:
                     node.V[0] = params["namespace"]
@@ -268,12 +275,12 @@ class _Converter(Transformer):
         left, right = args
         return Node("minus", [left, right])
         
-    def dataset_name(self, args):
+    def namespace_name(self, args):
         assert len(args) in (1,2)
         if len(args) == 1:
-            return Node("dataset_name", value=[None, args[0].value])      # no namespace
+            return Node("namespace_name", value=[None, args[0].value])      # no namespace
         else:
-            return Node("dataset_name", value=[args[0].value, args[1].value])
+            return Node("namespace_name", value=[args[0].value, args[1].value])
 
     def dataset(self, args):
         assert len(args) in (1,2)
@@ -284,7 +291,7 @@ class _Converter(Transformer):
         
     def filter(self, args):
         assert len(args) == 3
-        return Node("filter", [args[0].value, args[1], args[2]])
+        return Node("filter", args[2], value = (args[0].value, args[1]))
         
     def metafilter_exp(self, args):
         assert len(args) == 2
@@ -322,10 +329,26 @@ class _Converter(Transformer):
         else:
             return Node("meta_or", [left, right])
             
+class _Assembler(Ascender):
+
+    def __init__(self, db, default_namespace):
+        self.DB = db
+        self.DefaultNamespace = default_namespace
+        
+    def walk(self, inp):
+        #print("Assembler.walk(): in:", inp.pretty() if isinstance(inp, Node) else repr(inp))
+        out = Ascender.walk(self, inp)
+        #print("Assembler.walk(): out:", out.pretty() if isinstance(out, Node) else repr(out))
+        return out
+        
+    def named_query(self, children, query_name):
+        namespace, name = query_name
+        namespace = namespace or self.DefaultNamespace
+        q = Query.from_db(self.DB, namespace, name)
+        #print("_Assembler.named_query: returning:\n", q.Parsed.pretty())
+        return q.Parsed
+        
 class _Optimizer(Ascender):
-    
-    def __init__(self, named_queries):
-        self.NamedQueries = named_queries       # {name -> optimized optimized tree}
     
     def parents_of(self, children, value):
         assert len(children) == 1
@@ -345,10 +368,6 @@ class _Optimizer(Ascender):
         else:
             return self
 
-    def named_query(self, children, value):
-        assert len(children) == 1
-        return self.NamedQueries[children[0].value]
-            
     def meta_filter(self, children, value):
         assert len(children) == 2
         query, meta_exp = children
@@ -407,7 +426,7 @@ class _Evaluator(Ascender):
         dataset = DBDataset.get(self.DB, namespace, name)
         condition = None if meta_exp is None else self.meta_exp_to_sql(meta_exp)
         files = dataset.list_files(condition=condition, 
-            relationship="self" if provenance=None else provenance, 
+            relationship="self" if provenance is None else provenance, 
             with_metadata=True)
         #print ("Evaluator.dataset: files:", files)
         return files
@@ -450,13 +469,10 @@ class _Evaluator(Ascender):
         result_ids = left_ids - right_ids
         return (f for f in left_files if f.FID in result_ids)
 
-    def filter_inputs(self, args, value):
-        return args             # list of iterables
-
     def filter(self, args, value):
-        assert len(args) == 3
-        name, params, inputs = args
-        #print("Evaluator.filter: inputs:", inputs)
+        name, params = value
+        inputs = args
+        print("Evaluator.filter: inputs:", inputs)
         filter_function = self.Filters[name]
         return filter_function(inputs, params)
         
@@ -465,22 +481,22 @@ class _Evaluator(Ascender):
         files, meta_exp = args
         return (f for f in files if self.evaluate_meta_expression(f, meta_exp))
         
-    BOOL_OPS = ("and", "or", "not")
+    BOOL_OPS = ("meta_and", "meta_or", "meta_not")
         
     def evaluate_meta_expression(self, f, meta_expression):
         op, args = meta_expression.T, meta_expression.C
         if op in self.BOOL_OPS:
-            if op == 'and':
+            if op == 'meta_and':
                 ok = self.evaluate_meta_expression(f, args[0])
                 if ok and args[1:]:
-                    ok = self.evaluate_meta_expression(f, ["and"] + args[1:])
+                    ok = self.evaluate_meta_expression(f, ["meta_and"] + args[1:])
                 return ok
-            elif op == 'or':
+            elif op == 'meta_or':
                 ok = self.evaluate_meta_expression(f, args[0])
                 if not ok and args[1:]:
-                    ok = self.evaluate_meta_expression(f, ["or"] + args[1:])
+                    ok = self.evaluate_meta_expression(f, ["meta_or"] + args[1:])
                 return ok
-            elif op == 'not':
+            elif op == 'meta_not':
                 return not self.evaluate_meta_expression(f, args[0])
             else:
                 raise ValueError("Unrecognized boolean operation '%s'" % (op,))
@@ -503,11 +519,11 @@ class _Evaluator(Ascender):
     def meta_exp_to_sql(self, meta_expression):
         op, args = meta_expression.T, meta_expression.C
         if op in self.BOOL_OPS:
-            args = meta_expression[1:]
-            if op in ('or','and'):
-                return (' ' + op + ' ').join([
+            if op in ('meta_or','meta_and'):
+                sql_op = {"meta_or":"or", "meta_and":"and"}[op]
+                return (' ' + sql_op + ' ').join([
                     '(' + self.meta_exp_to_sql(part) + ')' for part in args])
-            elif op == 'not':
+            elif op == 'meta_not':
                 return ' not (' + self.meta_exp_to_sql(args[1]) + ')'
             else:
                 raise ValueError("Unrecognized boolean operation '%s'" % (op,))
@@ -539,15 +555,10 @@ class Query(object):
 
     _Parser = Lark(grammar, start="exp")
 
-    def __init__(self, exp_text, default_namespace=None, db=None):
+    def __init__(self, exp_text, default_namespace=None):
         self.Text = exp_text
         self.DefaultNamespace = default_namespace
         self.Parsed = self.Optimized = self.Assembled = None
-        self.NamedQueries = {}
-        
-    def as_json(self):
-        parsed = self.parse()
-        
         
     def remove_comments(self, text):
         out = []
@@ -562,22 +573,43 @@ class Query(object):
             self.Parsed = _Converter().convert(tree, self.DefaultNamespace)
         return self.Parsed
         
-    def assemble(self, db):
+    def assemble(self, db, default_namespace = None):
+        if self.Assembled is None:
+            parsed = self.parse()
+            #print("Query.assemble(): parsed:", parsed.pretty())
+            self.Assembled = _Assembler(db, default_namespace).walk(parsed)
+            #print("Query.assemble: self.Assembled:", self.Assembled.pretty())
+        return self.Assembled
         
-            for q in DBQuery.list():
-                self.NamedQueries[(q.Namespace, q.Name)] = Query(q.Text, q.Namespace, db).parse()
-        
+    def skip_assembly(self):
+        if self.Assembled is None:
+            self.Assembled = self.parse()
+        return self.Assembled
         
     def optimize(self):
-        if self.Parsed is None:     self.parse()
-        self.Optimized = _Optimizer().walk(self.Parsed)
+        assert self.Assembled is not None
+        self.Optimized = _Optimizer().walk(self.Assembled)
         return self.Optimized
 
     def run(self, db, filters={}):
-        if self.Optimized is None:  self.optimize()
-        return _Evaluator(db, filters).walk(self.Optimized)
+        return _Evaluator(db, filters).walk(self.optimize())
         
+    @staticmethod
+    def from_db(db, namespace, name):
+        q = DBNamedQuery.get(db, namespace, name)
+        source, code = q.Source, q.Code
+        q = Query(q.Source)
+        q.Parsed = Node.from_json(code)
+        #print("Query.from_db: q.Parsed:", q.Parsed.pretty())
+        return q
+
+    @property
+    def code(self):
+        return self.parse().to_json()
         
+    def to_db(self, db, namespace, name):
+        return DBNamedQuery(db, namespace, name, self.Text, self.code).save()
+
 if __name__ == "__main__":
     import sys
     tree = Query.Parser.parse(open(sys.argv[1], "r").read())

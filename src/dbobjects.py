@@ -390,32 +390,33 @@ class DBDataset(object):
         
 class DBNamedQuery(object):
 
-    def __init__(self, db, namespace, name, text):
+    def __init__(self, db, namespace, name, source, code):
         assert namespace is not None and name is not None
         self.DB = db
         self.Namespace = namespace
         self.Name = name
-        self.Text = text
+        self.Source = source
+        self.Code = code
         
     def save(self):
         self.DB.cursor().execute("""
-            insert into queries(namespace, name, query) values(%s, %s, %s)
+            insert into queries(namespace, name, source, code) values(%s, %s, %s, %s)
                 on conflict(namespace, name) 
-                    do update set query=%s;
+                    do update set source=%s, code=%s;
             commit""",
-            (self.Namespace, self.Name, self.Text, self.Text))
+            (self.Namespace, self.Name, self.Source, self.Code, self.Source, self.Code))
         return self
             
     @staticmethod
     def get(db, namespace, name):
         c = db.cursor()
         #print(namespace, name)
-        c.execute("""select query
+        c.execute("""select source, code
                         from queries
                         where namespace=%s and name=%s""",
                 (namespace, name))
-        (text,) = c.fetchone()
-        return DBNamedQuery(db, namespace, name, text)
+        (source, code) = c.fetchone()
+        return DBNamedQuery(db, namespace, name, source, code)
         
     @staticmethod
     def list(db, namespace=None):

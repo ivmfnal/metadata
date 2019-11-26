@@ -70,8 +70,12 @@ create index dataset_attr_bool on dataset_attributes(name, bool_value, dataset_n
 
 create table queries
 (
-    name            text    primary key,
+    namespace            text,
+    name            text,
     parameters      text[],
-    expression      text
+    source      text,
+    code        text,
+    primary key(namespace, name)
 );
+
 

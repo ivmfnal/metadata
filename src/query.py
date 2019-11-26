@@ -48,7 +48,17 @@ queries = [
     
         ("meta int", """
                 dataset test:C where i < 10
+        """),
+        
+        
+        ("named", """
+            union (
+                query test:C_true,
+                dataset test:A
+            ) where b=true
+
         """)
+
 ]
 
 
@@ -60,9 +70,10 @@ for qn, qtext in queries:
     exp.parse()
     dt_parse = time.time() - t0
     print("-- parsed --")
-    print(exp.Parsed.pretty())
+    print(exp.parse().pretty())
+    exp.assemble(conn)
     print("-- optimized --")
-    print(exp.Optimized.pretty())
+    print(exp.optimize().pretty())
     t1 = time.time()
     out = list(exp.run(conn, filters))
     dt_run = time.time() - t1
