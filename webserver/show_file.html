@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block headline %}File {{f.Namespace}}:{{f.Name}}{% endblock %}
+
+{% block content %}
+
+<table class=placement>
+    <tr>
+        <td>
+            <table class=tabular>
+                <tr>
+                    <td>
+                        <h3>File info</h3>
+                        <table class=tabular>
+                            <tr>
+                                <th>File ID</th><td>{{f.FID}}</td>
+                            </tr>
+                            <tr>
+                                <th>Name</th><td>{{f.Namespace}}:{{f.Name}}</td>
+                            </tr>
+                        </table>
+                    </td>
+                    <td>
+                        <h3>Metadata</h3>
+                        <table class=tabular>
+                            {% for k, v in f.Metadata.items()|sort %}
+                                <tr><td>{{k}}</td><td>{{v}}</td></tr>
+                            {% endfor %}
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+    <tr>
+        <td>
+            <table class="placement" width="100%">
+                <tr>
+                    <th width="50%">Parents</th><th width="50%">Children</th>
+                </tr>
+                <tr>
+                    <td>
+                        {% for p in f.parents() %}
+                            <p><a href="./show_file?fid={{p.FID}}">{{p.Namespace}}:{{p.Name}}</a></p>
+                        {% endfor %}
+                    </td>
+                    <td>
+                        {% for c in f.children() %}
+                            <p><a href="./show_file?fid={{c.FID}}">{{c.Namespace}}:{{c.Name}}</a></p>
+                        {% endfor %}
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+
+{% endblock %}
+                
+                
+    
+    

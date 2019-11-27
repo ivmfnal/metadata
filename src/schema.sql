@@ -7,6 +7,15 @@ create table files
 
 create unique index file_names_unique on files(namespace, name);
 
+create table parent_child
+(
+    parent_id    text,
+    child_id    text,
+    primary key (parent_id, child_id)
+);
+
+create index parent_child_child on parent_child(child_id);
+
 create table datasets
 (
     namespace           text,
@@ -74,7 +83,6 @@ create table queries
     name            text,
     parameters      text[],
     source      text,
-    code        text,
     primary key(namespace, name)
 );
 

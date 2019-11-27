@@ -1,4 +1,8 @@
 import uuid, json
+from psycopg2 import IntegrityError
+
+class AlreadyExistsError(Exception):
+    pass
 
 def fetch_generator(c):
     while True:
@@ -15,24 +19,6 @@ def first_not_empty(lst):
     else:
         return val
         
-def gather_metadata(self, db, g):
-    f = None
-    meta = {}
-    for tup in g:
-            fid, ns, n, an = tup[:4]
-            v = first_not_empty(tup[4:])
-            if f is not None and fid != f.FID:
-                    yield f
-                    f = None
-            if f is None:
-                    f = DBFile(db, fid=fid, name=n, namespace=ns)
-                    f.Metadata = {}
-            f.Metadata[an] = v
-    if f is not None:
-            yield f
-            
-
-
 class DBFileSet(object):
     
     def __init__(self, db, files):
@@ -60,7 +46,8 @@ class DBFileSet(object):
                     if f is None:
                             f = DBFile(db, fid=fid, name=n, namespace=ns)
                             f.Metadata = {}
-                    f.Metadata[an] = v
+                    if an is not None:              # this will happen if outer join is used
+                        f.Metadata[an] = v     
             if f is not None:
                     yield f
         return DBFileSet(db, gather_meta(g))
@@ -69,41 +56,74 @@ class DBFileSet(object):
         return self.Files
             
     def parents(self, with_metadata = False):
-        return self._relationship("parent", with_metadata)
+        return self._relationship("parents", with_metadata)
             
     def children(self, with_metadata = False):
-        return self._relationship("child", with_metadata)
+        return self._relationship("children", with_metadata)
             
     def _relationship(self, rel, with_metadata):
         if rel == "children":
-            join = "f.id = pc.child_id and pc.parent_id in"
+            join = "f.id = pc.child_id and pc.parent_id = any (%s)"
         else:
-            join = "f.id = pc.parent_id and pc.child_id in"
+            join = "f.id = pc.parent_id and pc.child_id = any (%s)"
             
-        c = db.cursor()
+        c = self.DB.cursor()
         file_ids = list(f.FID for f in self.Files)
         if with_metadata:
-            c.execute(f"""select distinct f.id, f.namespace, f.name, 
+            sql = f"""select distinct f.id, f.namespace, f.name, 
                                 a.name,
                                 a.int_array, a.float_array, a.string_array, a.bool_array,
                                 a.int_value, a.float_value, a.string_value, a.bool_value
-                        from files f, parent_child pc, file_attributes a
-                        where a.file_id = f.id
-                                and {join} %s
+                        from files f left outer join file_attributes a on (a.file_id = f.id), 
+                            parent_child pc
+                        where {join}
                         order by f.id
-                        """,
-                (file_ids,))
-            return self.gather_metadata(self.DB, fetch_generator(c))
+                        """
+            c.execute(sql, (file_ids,))
+            #print("__relationship: sql:", c.query)
+            return DBFileSet.from_metadata_tuples(self.DB, fetch_generator(c))
         else:
-            c.execute(f"""select distinct f.id, f.namespace, f.name 
+            sql = f"""select distinct f.id, f.namespace, f.name 
                         from files f, parent_child pc
                         where 
-                                and {join} %s
-                        """,
-                (file_ids,))
+                                {join}
+                        """
+            c.execute(sql, (file_ids,))
             return DBFileSet.from_shallow(self.DB, fetch_generator(c))
-            
 
+    @staticmethod
+    def join(db, file_sets):
+        first = file_sets[0]
+        if len(file_sets) == 1:
+            return DBFileSet(db, first)
+        file_list = list(first)
+        file_ids = set(f.FID for f in file_list)
+        for another in file_sets[1:]:
+            another_ids = set(f.FID for f in another)
+            file_ids &= another_ids
+        return DBFileSet(db, (f for f in file_list if f.FID in file_ids))
+
+    @staticmethod
+    def union(db, file_sets):
+        first = file_sets[0]
+        if len(file_sets) == 1:
+            return DBFileSet(db, first)
+        def union_generator(file_lists):
+            file_ids = set()
+            for lst in file_lists:
+                for f in lst:
+                    if not f.FID in file_ids:
+                        file_ids.add(f.FID)
+                        yield f
+        return DBFileSet(db, union_generator(file_sets))
+
+    def subtract(self, right):
+        right_ids = set(f.FID for f in right)
+        return (f for f in self if not f.FID in right_ids)
+        
+    __sub__ = subtract
+
+            
 class DBFile(object):
 
     def __init__(self, db, namespace = None, name = None, metadata = None, fid = None):
@@ -121,14 +141,18 @@ class DBFile(object):
 
     def save(self):
         c = self.DB.cursor()
-        c.execute("""
-            insert 
-                into files(id, namespace, name) 
-                values(%s, %s, %s)
-                on conflict(id) 
-                    do update set namespace=%s, name=%s;
-            commit""",
-            (self.FID, self.Namespace, self.Name, self.Namespace, self.Name))
+        try:
+            c.execute("""
+                insert 
+                    into files(id, namespace, name) 
+                    values(%s, %s, %s)
+                    on conflict(id) 
+                        do update set namespace=%s, name=%s;
+                commit""",
+                (self.FID, self.Namespace, self.Name, self.Namespace, self.Name))
+        except IntegrityError:
+            c.execute("rollback")
+            raise AlreadyExistsError("%s:%s" % (self.Namespace, self.Name))
         return self
                 
     def save_metadata(self, metadata):
@@ -187,7 +211,7 @@ class DBFile(object):
                     where id = %s""", (fid,))
             namespace, name = c.fetchone()
         else:
-            c.execute("""select fid 
+            c.execute("""select id 
                     from files
                     where namespace = %s and name=%s""", (namespace, name))
             (fid,) = c.fetchone()
@@ -209,7 +233,7 @@ class DBFile(object):
         for tup in fetch_generator(c):
             name = tup[0]
             values = tup[1:]
-            meta[name] = first_non_empty(values)
+            meta[name] = first_not_empty(values)
         #print("meta:", meta)
         return meta
         
@@ -251,6 +275,41 @@ class DBFile(object):
 
     def to_json(self, with_metadata = False):
         return json.dumps(self.to_jsonable(with_metadata=with_metadata))
+        
+    def children(self, with_metadata = False):
+        return DBFileSet(self.DB, [self]).children(with_metadata)
+        
+    def parents(self, with_metadata = False):
+        return DBFileSet(self.DB, [self]).parents(with_metadata)
+        
+    def add_child(self, child):
+        child_fid = child if isinstance(child, str) else child.FID
+        c = self.DB.cursor()
+        c.execute("""
+            insert into parent_child(parent_id, child_id)
+                values(%s, %s)        
+                on conflict(parent_id, child_id) do nothing;
+            commit""", (self.FID, child_fid)
+        )
+        
+    def remove_child(self, child):
+        child_fid = child if isinstance(child, str) else child.FID
+        c = self.DB.cursor()
+        c.execute("""
+            delete from parent_child where
+                parent_id = %s and child_id = %s;
+            commit""", (self.FID, child_fid)
+        )
+
+    def add_parent(self, parent):
+        parent_fid = parent if isinstance(parent, str) else parent.FID
+        return DBFile(self.DB, fid=parent_fid).add_child(self)
+        
+    def remove_parent(self, parent):
+        parent_fid = parent if isinstance(parent, str) else parent.FID
+        return DBFile(self.DB, fid=parent_fid).remove_child(self)
+    
+        
         
 class DBDataset(object):
 
@@ -318,9 +377,8 @@ class DBDataset(object):
                                                 a.name,
                                                 a.int_array, a.float_array, a.string_array, a.bool_array,
                                                 a.int_value, a.float_value, a.string_value, a.bool_value
-                                        from files, file_attributes a
-                                        where a.file_id = files.id
-                                            and files.id in (
+                                        from files left outer join file_attributes a on (a.file_id = files.id)
+                                        where files.id in (
                                                 select distinct f.id as fid
                                                         from files f, files_datasets fd, file_attributes attr
                                                         where f.id = fd.file_id
@@ -335,9 +393,10 @@ class DBDataset(object):
                                                 a.name,
                                                 a.int_array, a.float_array, a.string_array, a.bool_array,
                                                 a.int_value, a.float_value, a.string_value, a.bool_value
-                                        from files f, file_attributes a, files_datasets fd
-                                        where a.file_id = f.id
-                                                and f.id = fd.file_id
+                                        from files f left outer join file_attributes a on (a.file_id = f.id), 
+                                            files_datasets fd
+                                        where 
+                                                f.id = fd.file_id
                                                 and fd.dataset_namespace=%s and fd.dataset_name=%s
                                         order by f.id
                                         """,
@@ -390,48 +449,50 @@ class DBDataset(object):
         
 class DBNamedQuery(object):
 
-    def __init__(self, db, namespace, name, source, code):
+    def __init__(self, db, namespace, name, source, parameters=[]):
         assert namespace is not None and name is not None
         self.DB = db
         self.Namespace = namespace
         self.Name = name
         self.Source = source
-        self.Code = code
+        self.Parameters = parameters
         
     def save(self):
         self.DB.cursor().execute("""
-            insert into queries(namespace, name, source, code) values(%s, %s, %s, %s)
+            insert into queries(namespace, name, source, parameters) values(%s, %s, %s, %s)
                 on conflict(namespace, name) 
-                    do update set source=%s, code=%s;
+                    do update set source=%s, parameters=%s;
             commit""",
-            (self.Namespace, self.Name, self.Source, self.Code, self.Source, self.Code))
+            (self.Namespace, self.Name, self.Source, self.Parameters, self.Source, self.Parameters))
         return self
             
     @staticmethod
     def get(db, namespace, name):
         c = db.cursor()
         #print(namespace, name)
-        c.execute("""select source, code
+        c.execute("""select source, parameters
                         from queries
                         where namespace=%s and name=%s""",
                 (namespace, name))
-        (source, code) = c.fetchone()
-        return DBNamedQuery(db, namespace, name, source, code)
+        (source, params) = c.fetchone()
+        return DBNamedQuery(db, namespace, name, source, params)
         
     @staticmethod
     def list(db, namespace=None):
         c = db.cursor()
         if namespace is not None:
-            c.execute("""select namespace, name, query
+            c.execute("""select namespace, name, source, parameters
                         from queries
                         where namespace=%s""",
                 (namespace,)
             )
         else:
-            c.execute("""select namespace, name, query
+            c.execute("""select namespace, name, source, parameters
                         from queries"""
             )
-        return (DBNamedQuery(db, namespace, name, text) for namespace, name, text in fetch_generator(c))
+        return (DBNamedQuery(db, namespace, name, source, parameters) 
+                    for namespace, name, source, parameters in fetch_generator(c)
+        )
         
 
         

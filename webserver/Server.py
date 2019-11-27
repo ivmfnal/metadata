@@ -1,11 +1,11 @@
 from webpie import WPApp, WPHandler
 import psycopg2, json, time
-from dbobjects import DBFile, DBDataset
+from dbobjects import DBFile, DBDataset, DBFileSet
 from wsdbtools import ConnectionPool
 from urllib.parse import quote_plus, unquote_plus
 
 from py3 import to_str
-from expressions3 import Query
+from expressions4 import Query
 
 class DataHandler(WPHandler):
 
@@ -28,14 +28,17 @@ class DataHandler(WPHandler):
             dataset = DBDataset(namespace, name).save()
             return dataset.to_json(), "text/json"  
             
-    def file(self, request, relpath, **args):
+    def file(self, request, relpath, f="html", **args):
         method = request.method
         if method == "POST":
             return self.create_file(request, relpath, **args)
         elif method == "PUT":
             return self.update_file(request, relpath, **args)
         else:
-            return self.get_file(request, relpath, **args)
+            if f == "html":
+                return self.show_file(request, relpath, **args)
+            else:
+                return self.get_file(request, relpath, **args)
             
     def extract_file_spec(self, fid, name, relpath):
         if name is None and fid is None and relpath:
@@ -73,6 +76,12 @@ class DataHandler(WPHandler):
             else:
                 f = DBFile.get(db, namespace=namespace, name=name)
             return f.to_json(with_metadata=with_metadata), "text/json"
+            
+    def show_file(self, request, relpath, name=None, fid=None, **args):
+        fid, namespace, name = self.extract_file_spec(fid, name, relpath)
+        with self.App.DB.connect() as db:
+            f = DBFile.get(db, fid=fid, namespace=namespace, name=name, with_metadata=True)
+            return self.render_to_response("show_file.html", f=f)
 
     def datasets(self, request, relpath, format="html"):
         with self.App.DB.connect() as db:
@@ -104,7 +113,7 @@ class DataHandler(WPHandler):
         t0 = time.time()
         if query_text:
             with self.App.DB.connect() as db:
-                results = Query(db, query_text, default_namespace=namespace or None).run(self.App.filters())
+                results = Query(query_text, default_namespace=namespace or None).run(db, self.App.filters())
             url_query = query_text.replace("\n"," ")
             while "  " in url_query:
                 url_query = url_query.replace("  ", " ")
@@ -125,6 +134,7 @@ class DataHandler(WPHandler):
             resp = (data_json, "text/json")
         elif format == "html":
             files = None if results is None else list(results)
+            print("query: results:", len(files))
             runtime = time.time() - t0
             resp = self.render_to_response("query.html", 
                 query=query_text, url_query=url_query,
@@ -133,6 +143,11 @@ class DataHandler(WPHandler):
                 namespace=namespace or "")
             resp.content_type = "text/html"
         return resp
+        
+    #def named_queries(self, request, relpath, format="html", namespace=None, **args):
+        
+        
+    
             
             
 

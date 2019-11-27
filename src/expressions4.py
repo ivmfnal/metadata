@@ -1,4 +1,4 @@
-from dbobjects import DBDataset, DBFile, DBNamedQuery
+from dbobjects import DBDataset, DBFile, DBNamedQuery, DBFileSet
 import json, time
 
 from lark import Lark
@@ -152,13 +152,18 @@ class Ascender(object):
         #print("walk: in:", node.pretty())
         children = [self.walk(c) for c in children]
         #print("walk: children->", children)
-        method = getattr(self, node_type) if hasattr(self, node_type) else None
-        out = method(children, node.V) if method is not None else self.__default(node, children)
-        #print("walk: out:", out.pretty())
+        if hasattr(self, node_type):
+            method = getattr(self, node_type)
+            if hasattr(method, "pass_node") and getattr(method, "pass_node"):
+                out = method(node)
+            else:
+                out = method(children, node.V)
+        else:
+            out = self.__default(node)
         return out
         
-    def __default(self, node, children):
-        return Node(node.T, children=children, value=node.V)
+    def __default(self, node):
+        return node
 
 class _Converter(Transformer):
     
@@ -194,7 +199,8 @@ class _Converter(Transformer):
         return args
 
     def __default__(self, data, children, meta):
-        return None(data, children)
+        #print("__default__:", data, children)
+        return Node(data, children)
         
     def param_def(self, args):
         return (args[0].value, args[1])
@@ -222,11 +228,11 @@ class _Converter(Transformer):
         
     def parents_of(self, args):
         assert len(args) == 1
-        return None("parents_of", args)
+        return Node("parents_of", args)
         
     def children_of(self, args):
         assert len(args) == 1
-        return None("children_of", args)
+        return Node("children_of", args)
         
     def add(self, args):
         assert len(args) == 2
@@ -344,29 +350,32 @@ class _Assembler(Ascender):
     def named_query(self, children, query_name):
         namespace, name = query_name
         namespace = namespace or self.DefaultNamespace
-        q = Query.from_db(self.DB, namespace, name)
-        #print("_Assembler.named_query: returning:\n", q.Parsed.pretty())
-        return q.Parsed
+        Query.from_db(self.DB, namespace, name).parse()
         
 class _Optimizer(Ascender):
     
-    def parents_of(self, children, value):
+    def parents_of(self, node):
+        children = node.C
         assert len(children) == 1
         child = children[0]
         if isinstance(child, Node) and child.T in ("union", "join"):
-            # parents (union(x,y,z)) = union(parents(x), parents(y), parents(z))
             return Node(child.T, [Node("parents_of", cc) for cc in child.C])
         else:
-            return self
+            return node 
+
+    parents_of.pass_node = True
             
-    def children_of(self, children, value):
+    def children_of(self, node):
+        children = node.C
         assert len(children) == 1
         child = children[0]
         if isinstance(child, Node) and child.T in ("union", "join"):
             # parents (union(x,y,z)) = union(parents(x), parents(y), parents(z))
             return Node(child.T, [Node("children_of", cc) for cc in child.C])
         else:
-            return self
+            return node
+
+    children_of.pass_node = True
 
     def meta_filter(self, children, value):
         assert len(children) == 2
@@ -405,19 +414,21 @@ class _Evaluator(Ascender):
 
     def parents_of(self, args, value):
         assert len(args) == 1
-        child = args[0]
-        if False and child.T == "dataset":      # not implemented yet
-            return self.dataset(child.C, child.V, "parents")
+        arg = args[0]
+        if False and arg.T == "dataset":      # not implemented yet
+            return self.dataset(arg.C, arg.V, "parents")
         else:
-            return DBFile.parents_of(self.DB, (f.FID for f in child), with_metadata=True)
+            return arg.parents(with_metadata=True)
 
     def children_of(self, args, value):
         assert len(args) == 1
-        child = args[0]
-        if False and child.T == "dataset":      # not implemented yet
-            return self.dataset(child.C, child.V, "parents")
+        arg = args[0]
+        print("_Evaluator.children_of: arg:", arg)
+        if False and arg.T == "dataset":      # not implemented yet
+            return self.dataset(arg.C, arg.V, "children")
         else:
-            return DBFile.children_of(self.DB, (f.FID for f in child), with_metadata=True)
+            print("children_of: calling children()...")
+            return arg.children(with_metadata=True)
 
     def dataset(self, args, value, provenance=None):
         assert len(args) == 2
@@ -429,57 +440,31 @@ class _Evaluator(Ascender):
             relationship="self" if provenance is None else provenance, 
             with_metadata=True)
         #print ("Evaluator.dataset: files:", files)
+        assert isinstance(files, DBFileSet)
         return files
         
     def union(self, args, value):
-        expressions = args
-        if len(expressions) == 1:
-            return expressions[0]
-        def union_generator(file_lists):
-            first = file_lists[0]
-            if len(file_lists) == 1:
-                return first
-            file_ids = set()
-            for lst in file_lists:
-                for f in lst:
-                    if not f.FID in file_ids:
-                        file_ids.add(f.FID)
-                        yield f
-        return union_generator(expressions)
+        return DBFileSet.union(self.DB, args)
         
     def join(self, args, value):
-        expressions = args
-        first = expressions[0]
-        if len(expressions) == 1:
-            return first
-        file_list = list(first)
-        file_ids = set(f.FID for f in file_list)
-        for another in expressions[1:]:
-            another_ids = set(f.FID for f in another)
-            file_ids &= another_ids
-        return (f for f in file_list if f.FID in file_ids)
+        return DBFileSet.join(self.DB, args)
         
     def minus(self, expressions, value):
         assert len(expressions) == 2
         left, right = expressions
-        #print("minus: left:", left)
-        left_files = list(left)
-        left_ids = set(f.FID for f in left_files)
-        right_ids = set(f.FID for f in right)
-        result_ids = left_ids - right_ids
-        return (f for f in left_files if f.FID in result_ids)
+        return left - right
 
     def filter(self, args, value):
         name, params = value
         inputs = args
-        print("Evaluator.filter: inputs:", inputs)
+        #print("Evaluator.filter: inputs:", inputs)
         filter_function = self.Filters[name]
-        return filter_function(inputs, params)
+        return DBFileSet(self.DB, filter_function(inputs, params))
         
     def meta_filter(self, args, value):
         assert len(args) == 2
         files, meta_exp = args
-        return (f for f in files if self.evaluate_meta_expression(f, meta_exp))
+        return DBFileSet(self.DB, (f for f in files if self.evaluate_meta_expression(f, meta_exp)))
         
     def _eval_meta_bool(self, f, bool_op, parts):
         assert len(parts) > 0
@@ -561,8 +546,8 @@ class Query(object):
 
     _Parser = Lark(grammar, start="exp")
 
-    def __init__(self, exp_text, default_namespace=None):
-        self.Text = exp_text
+    def __init__(self, source, default_namespace=None):
+        self.Source = source
         self.DefaultNamespace = default_namespace
         self.Parsed = self.Optimized = self.Assembled = None
         
@@ -575,7 +560,7 @@ class Query(object):
         
     def parse(self):
         if self.Parsed is None:
-            tree = self._Parser.parse(self.remove_comments(self.Text))
+            tree = self._Parser.parse(self.remove_comments(self.Source))
             self.Parsed = _Converter().convert(tree, self.DefaultNamespace)
         return self.Parsed
         
@@ -593,28 +578,27 @@ class Query(object):
         return self.Assembled
         
     def optimize(self):
+        print("Query.optimize: entry")
         assert self.Assembled is not None
         self.Optimized = _Optimizer().walk(self.Assembled)
+        print("Query.optimize: optimized:", self.Optimized)
         return self.Optimized
 
     def run(self, db, filters={}):
+        self.assemble(db, self.DefaultNamespace)
+        print("Query.run: assemled:", self.Assembled.pretty())
         return _Evaluator(db, filters).walk(self.optimize())
         
-    @staticmethod
-    def from_db(db, namespace, name):
-        q = DBNamedQuery.get(db, namespace, name)
-        source, code = q.Source, q.Code
-        q = Query(q.Source)
-        q.Parsed = Node.from_json(code)
-        #print("Query.from_db: q.Parsed:", q.Parsed.pretty())
-        return q
-
     @property
     def code(self):
         return self.parse().to_json()
         
+    @staticmethod
+    def from_db(db, namespace, name):
+        return Query(DBNamedQuery.get(db, namespace, name).Source)
+
     def to_db(self, db, namespace, name):
-        return DBNamedQuery(db, namespace, name, self.Text, self.code).save()
+        return DBNamedQuery(db, namespace, name, self.Source).save()
 
 if __name__ == "__main__":
     import sys
