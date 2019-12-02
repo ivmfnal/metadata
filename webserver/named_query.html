@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block headline %}Named Query {{query.Namespace}}:{{query.Name}}{% endblock %}
+
+{% block content %}
+
+<form method=POST action="./save_named_query">
+	<input type="hidden" name="namespace" value="{{query.Namespace}}"/>
+	<input type="hidden" name="name" value="{{query.Name}}"/>
+
+<table class="form">
+	<tr>
+		<th>Namespace</th><td>{{query.Namespace}}</td>
+	</tr>
+	<tr>
+		<th>Name</th><td>{{query.name}}</td>
+	</tr>
+	<tr>
+		<th>Source</th>
+		<td>{% if edit %}
+				<pre class="source">{{query.Source}}</pre>
+			{% else %}
+				<textarea name="source">{{query.Source}}</textarea>
+			{% endif %}
+		</td>
+	</tr>
+	{% if edit %}
+		<tr><td></td><td><input type="submit" value="Save"/></td>
+		</tr>
+	{% endif %}
+</table>
+
+</form>
+
+{% endblock %}
+	

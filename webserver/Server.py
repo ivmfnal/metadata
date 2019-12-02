@@ -144,7 +144,34 @@ class DataHandler(WPHandler):
             resp.content_type = "text/html"
         return resp
         
-    #def named_queries(self, request, relpath, format="html", namespace=None, **args):
+    def named_queries(self, request, relpath, format="html", namespace=None, **args):
+        with self.App.DB.connect() as db:
+            queries = list(DBNamedQuery.list(db, namespace))
+        if format == "html":
+            return self.render_to_response("named_queries.html", namespace=namespace,
+                queries = queries)
+        else:
+            data = ["%s:%s" % (q.Namespace, q.Name) for q in queries]
+            return json.dumps(data), "text/json"
+            
+    def show_named_query(self, request, relpath, name=None, namespace=None, edit="no", **args):
+        if namespace is None:
+            name, namespace = name.split(":",1)
+            
+        with self.App.DB.connect() as db:
+            query = DBNamedQuery.get(namespace, name)
+        
+        return self.render_to_response("named_query.html", query=query, edit = edit=="yes")
+
+    def save_named_query(self, request, relpath, **args):
+        name = request.POST["name"]
+        namespace = request.POST["namespace"]
+        source = request.POST["source"]
+        
+        with self.App.DB.connect() as db:
+            query = DBNamedQuery(name=name, namespace=namespace, source=source).save()
+        
+        return self.render_to_response("named_query.html", query=query, edit = True)
         
         
     
