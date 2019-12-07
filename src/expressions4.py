@@ -6,6 +6,8 @@ from lark import Transformer, Tree, Token
 from lark.visitors import Interpreter
 import pprint
 
+meta_to_sql = False
+
 
 grammar = """
 exp:  add_exp                                   -> f_
@@ -143,6 +145,9 @@ class Node(object):
 
 class Ascender(object):
 
+    def __init__(self):
+        self.Indent = ""
+
     def walk(self, node):
         if not isinstance(node, Node):
             return node
@@ -150,7 +155,10 @@ class Ascender(object):
         #print("Ascender.walk:", node_type, children)
         assert isinstance(node_type, str)
         #print("walk: in:", node.pretty())
+        saved = self.Indent 
+        self.Indent += "  "
         children = [self.walk(c) for c in children]
+        self.Indent = saved
         #print("walk: children->", children)
         if hasattr(self, node_type):
             method = getattr(self, node_type)
@@ -159,11 +167,11 @@ class Ascender(object):
             else:
                 out = method(children, node.V)
         else:
-            out = self.__default(node)
+            out = self.__default(node, children)
         return out
         
-    def __default(self, node):
-        return node
+    def __default(self, node, children):
+        return Node(node.T, children=children, value=node.V)
 
 class _Converter(Transformer):
     
@@ -290,10 +298,18 @@ class _Converter(Transformer):
 
     def dataset(self, args):
         assert len(args) in (1,2)
-        if len(args) == 1:
-            return Node("dataset", [args[0], None])       # dataset without meta_filter
+        if meta_to_sql:
+                if len(args) == 1:
+                    return Node("dataset", [args[0], None])       # dataset without meta_filter
+                else:
+                    return Node("dataset", [args[0], args[1]])
         else:
-            return Node("dataset", [args[0], args[1]])
+                if len(args) == 1:
+                    return Node("dataset", [args[0], None])
+                if not args[1].T in ( "and", "or", "not" ):
+                    return Node("dataset", [args[0], args[1]])
+                n = Node("dataset", [args[0], None])
+                return Node("meta_filter", [n, args[1]])
         
     def filter(self, args):
         assert len(args) == 3
@@ -338,22 +354,25 @@ class _Converter(Transformer):
 class _Assembler(Ascender):
 
     def __init__(self, db, default_namespace):
+        Ascender.__init__(self)
         self.DB = db
         self.DefaultNamespace = default_namespace
         
     def walk(self, inp):
-        #print("Assembler.walk(): in:", inp.pretty() if isinstance(inp, Node) else repr(inp))
+        #print(self.Indent, "Assembler.walk(): in:", inp.pretty() if isinstance(inp, Node) else repr(inp))
         out = Ascender.walk(self, inp)
-        #print("Assembler.walk(): out:", out.pretty() if isinstance(out, Node) else repr(out))
+        #print(self.Indent, "Assembler.walk(): out:", out.pretty() if isinstance(out, Node) else repr(out))
         return out
         
     def named_query(self, children, query_name):
         namespace, name = query_name
         namespace = namespace or self.DefaultNamespace
-        Query.from_db(self.DB, namespace, name).parse()
+        out = Query.from_db(self.DB, namespace, name).parse()
+        #print("Assembler: named_query: out=", out.pretty())
+        return out
         
 class _Optimizer(Ascender):
-    
+
     def parents_of(self, node):
         children = node.C
         assert len(children) == 1
@@ -383,6 +402,10 @@ class _Optimizer(Ascender):
         return self.apply_meta_exp(query, meta_exp)
         
     def apply_meta_exp(self, node, exp):
+        if not meta_to_sql:
+            # do nothing
+            return Node("meta_filter", [node, exp])
+            
         t = node.T
         if t in ("join", "union"):
             new_children = [self.apply_meta_exp(c, exp) for c in node.C]
@@ -409,6 +432,7 @@ class _Optimizer(Ascender):
 class _Evaluator(Ascender):
 
     def __init__(self, db, filters):
+        Ascender.__init__(self)
         self.Filters = filters
         self.DB = db
 
@@ -423,11 +447,11 @@ class _Evaluator(Ascender):
     def children_of(self, args, value):
         assert len(args) == 1
         arg = args[0]
-        print("_Evaluator.children_of: arg:", arg)
+        #print("_Evaluator.children_of: arg:", arg)
         if False and arg.T == "dataset":      # not implemented yet
             return self.dataset(arg.C, arg.V, "children")
         else:
-            print("children_of: calling children()...")
+            #print("children_of: calling children()...")
             return arg.children(with_metadata=True)
 
     def dataset(self, args, value, provenance=None):
@@ -436,6 +460,7 @@ class _Evaluator(Ascender):
         namespace, name = dataset_name.V
         dataset = DBDataset.get(self.DB, namespace, name)
         condition = None if meta_exp is None else self.meta_exp_to_sql(meta_exp)
+        #print("dataset: condition:", condition)
         files = dataset.list_files(condition=condition, 
             relationship="self" if provenance is None else provenance, 
             with_metadata=True)
@@ -523,7 +548,9 @@ class _Evaluator(Ascender):
             if op in ('<', '>', '<=', '>=', '==', '=', '!='):
                 sql_op = '=' if op == '==' else op
                 if isinstance(value, bool): colname = "bool_value"
-                elif isinstance(value, int): colname = "int_value"
+                elif isinstance(value, int): 
+                     return "attr.name='%s' and (attr.int_value %s '%s' or attr.float_value %s '%s')" % (
+                                     name, op, value, op, value)
                 elif isinstance(value, float): colname = "float_value"
                 elif isinstance(value, str): colname = "string_value"
                 else:
@@ -578,15 +605,14 @@ class Query(object):
         return self.Assembled
         
     def optimize(self):
-        print("Query.optimize: entry")
+        #print("Query.optimize: entry")
         assert self.Assembled is not None
         self.Optimized = _Optimizer().walk(self.Assembled)
-        print("Query.optimize: optimized:", self.Optimized)
+        #print("Query.optimize: optimized:", self.Optimized)
         return self.Optimized
 
     def run(self, db, filters={}):
         self.assemble(db, self.DefaultNamespace)
-        print("Query.run: assemled:", self.Assembled.pretty())
         return _Evaluator(db, filters).walk(self.optimize())
         
     @property

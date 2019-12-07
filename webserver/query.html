@@ -4,16 +4,14 @@
 
 {% block content %}
 
-<table class=placement>
+<table class=placement width="100%">
     <tr><td><h3>Query</h3></td>
-        <td><form method="post" target=".">
+        <td><form method="post" action="/query">
                 <table class="placement">
-                    <!--
                     <tr>
-                        <td width=10px>Namespace:</td><td width="100%"><input type="text" name="namespace"
+                        <td width=10px>Default namespace:</td><td width="100%"><input type="text" name="namespace"
                                 value="{{namespace or 'test'}}"/></td>
                     </tr>
-                    -->
                     <tr>
                         <td colspan=2><textarea name="query" cols=80 rows=10>{{query}}</textarea></td>
                     </tr>
@@ -43,7 +41,7 @@
             -->
             {% for f in files|sort(attribute="Name") %}
                 <tr>
-                    <td>{{f.Namespace}}:{{f.Name}}</td>
+                    <td><a href="./show_file?fid={{f.FID}}">{{f.Namespace}}:{{f.Name}}</a></td>
                     {% for k, v in f.Metadata.items()|sort %}
                         <td>{{k}}={{v}}</td>
                     {% endfor %}

@@ -4,6 +4,8 @@
 
 {% block content %}
 
+<p><a href="./create_named_query">create</a></p>
+
 <table class="data">
 	<tr>
 		<th>Namespace</th>
@@ -13,7 +15,7 @@
 		<tr>
 				<td>{{q.Namespace}}</td>
 				<td><a href="./named_query?name={{q.Name}}:{{q.Namespace}}&edit=yes">{{q.Name}}</td>
-        </tr>
+	</tr>
 	{% endfor %}
 </table>
 

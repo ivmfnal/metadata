@@ -12,7 +12,7 @@
 	</tr>
 	{% for f in files %}
 		<tr>
-			<td>{{f.Namespace}}</td><td>{{f.Name}}</td>
+			<td>{{f.Namespace}}</td><td><a href="./show_file?fid={{f.FID}}">{{f.Name}}</a></td>
 				{% for k, v in f.Metadata.items()|sort %}
 			<td>
 					{{k}}={{v}}

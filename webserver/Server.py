@@ -1,6 +1,6 @@
 from webpie import WPApp, WPHandler
 import psycopg2, json, time
-from dbobjects import DBFile, DBDataset, DBFileSet
+from dbobjects import DBFile, DBDataset, DBFileSet, DBNamedQuery
 from wsdbtools import ConnectionPool
 from urllib.parse import quote_plus, unquote_plus
 
@@ -90,10 +90,11 @@ class DataHandler(WPHandler):
             return json.dumps([
                 { "name":ds.Name, "namespace":ds.Namespace } for ds in datasets])
         else:
+            datasets = sorted(list(datasets), key=lambda x: (x.Namespace, x.Name))
             return self.render_to_response("datasets.html", datasets=datasets)
 
-    def dataset_files(self, request, relpath, format="html"):
-        namespace, name = relpath.split(":",1)
+    def dataset_files(self, request, relpath, format="html", dataset=None):
+        namespace, name = (dataset or relpath).split(":",1)
         with self.App.DB.connect() as db:
             dataset = DBDataset.get(db, namespace, name)
             files = sorted(list(dataset.list_files(with_metadata=True)), key=lambda x: (x.Namespace, x.Name))
@@ -118,6 +119,7 @@ class DataHandler(WPHandler):
             while "  " in url_query:
                 url_query = url_query.replace("  ", " ")
             url_query = quote_plus(url_query)
+            if namespace: url_query += "&namespace=%s" % (namespace,)
         else:
             results = None
             url_query = None
@@ -134,7 +136,7 @@ class DataHandler(WPHandler):
             resp = (data_json, "text/json")
         elif format == "html":
             files = None if results is None else list(results)
-            print("query: results:", len(files))
+            #print("query: results:", len(files))
             runtime = time.time() - t0
             resp = self.render_to_response("query.html", 
                 query=query_text, url_query=url_query,
@@ -154,30 +156,31 @@ class DataHandler(WPHandler):
             data = ["%s:%s" % (q.Namespace, q.Name) for q in queries]
             return json.dumps(data), "text/json"
             
-    def show_named_query(self, request, relpath, name=None, namespace=None, edit="no", **args):
+    def named_query(self, request, relpath, name=None, 
+                namespace=None, edit="no", **args):
         if namespace is None:
             name, namespace = name.split(":",1)
             
         with self.App.DB.connect() as db:
-            query = DBNamedQuery.get(namespace, name)
+            query = DBNamedQuery.get(db, namespace, name)
         
-        return self.render_to_response("named_query.html", query=query, edit = edit=="yes")
+        return self.render_to_response("named_query.html", 
+                query=query, edit = edit=="yes")
+
+    def create_named_query(self, request, relapth, **args):
+        return self.render_to_response("named_query.html",
+                create=True)
 
     def save_named_query(self, request, relpath, **args):
         name = request.POST["name"]
         namespace = request.POST["namespace"]
         source = request.POST["source"]
+        create = request.POST["create"] == "yes"
         
         with self.App.DB.connect() as db:
-            query = DBNamedQuery(name=name, namespace=namespace, source=source).save()
+            query = DBNamedQuery(db, name=name, namespace=namespace, source=source).save()
         
         return self.render_to_response("named_query.html", query=query, edit = True)
-        
-        
-    
-            
-            
-
         
 class App(WPApp):
 

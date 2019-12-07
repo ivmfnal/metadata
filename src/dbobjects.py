@@ -4,6 +4,13 @@ from psycopg2 import IntegrityError
 class AlreadyExistsError(Exception):
     pass
 
+class NotFoundError(Exception):
+    def __init__(self, msg):
+        self.Message = msg
+
+    def __str__(self):
+        return "Not found error: %s" % (self.Message,)
+
 def fetch_generator(c):
     while True:
         tup = c.fetchone()
@@ -348,7 +355,10 @@ class DBDataset(object):
                         from datasets
                         where namespace=%s and name=%s""",
                 (namespace, name))
-        parent_namespace, parent_name = c.fetchone()
+        tup = c.fetchone()
+        parent_namespace, parent_name = None, None
+        if tup is not None:
+            parent_namespace, parent_name = tup
         return DBDataset(db, namespace, name, parent_namespace, parent_name)
         
     @staticmethod

@@ -12,14 +12,22 @@
             margin-right: 30px;
             margin-left: 30px;
             margin-top: 20px;
+	    width: 100%;
         }
+
+	div#body {
+            margin-right: 30px;
+            margin-left: 30px;
+            margin-top: 20px;
+	    width: 100%;
+	}
         
         table.data {
             border-collapse: collapse;
         }
         
         .placement td, th {
-            padding: 20px;
+            p-adding: 5px;
         } 
             
         .placement th {
@@ -41,11 +49,23 @@
             text-align:  right;
         }
 
+	.form th {
+		font-weight: bold;
+		text-align:  right;
+	}
+
+	.form td {
+		text-align:  left;
+	}
+	.form td, .form th {
+		padding: 5px;
+	}
+
         textarea {
             font: 14px courier;
             }
             
-        input {
+        i-nput {
             font: 400 14px verdana;
         }
         
@@ -54,13 +74,16 @@
 </head>
 
 <body>
-    <h1>{% block headline %}{% endblock %}</h1>
+<div id="body">
+    <h1>DEMO Metadata Catalog</h1>
+    <h2>{% block headline %}{% endblock %}</h2>
 
     <p>
-        <a href="/datasets">datasets</a>&nbsp;&nbsp;<a href="/query">query</a>
+        <a href="/datasets">datasets</a>&nbsp;&nbsp;<a href="/query">query</a>&nbsp;&nbsp;<a href="/named_queries">named queries</a>
     </p>
     
     <div id=content>{% block content %}{% endblock %}</div>
+</div>	<!-- body -->
 </body>
 
 </html>

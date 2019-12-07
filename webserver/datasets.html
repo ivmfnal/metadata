@@ -12,7 +12,7 @@
 	</tr>
 	{% for ds in datasets %}
 		<tr><td>{{ds.Namespace}}</td><td>{{ds.Name}}</td>
-                <td><a href="./dataset_files/{{ds.Namespace}}:{{ds.Name}}">{{ds.nfiles}}</a></td></tr>
+                <td><a href="./dataset_files?dataset={{ds.Namespace}}:{{ds.Name}}">{{ds.nfiles}}</a></td></tr>
 	{% endfor %}
 </table>
 
