@@ -463,7 +463,7 @@ class _MetaExpressionDNF(object):
     __repr__= __str__
         
     def make_canonic(self, exp):
-        if exp.T in CMP_OPS:
+        if exp.T in CMP_OPS or exp.T == "in":
             return self.make_canonic(Node("meta_and", [exp]))
         elif exp.T == "meta_and":
             return self.make_canonic(Node("meta_or", [exp]))
@@ -475,7 +475,7 @@ class _MetaExpressionDNF(object):
             if c.T != "meta_and":
                 raise ValueError("The expression is not in DNF. Second level exp is of type %s: %s" % (c.T, exp.pretty()))
             for cc in c.C:
-                if not cc.T in CMP_OPS:
+                if not cc.T in CMP_OPS and cc.T != "in":
                     raise ValueError("The expression is not in DNF. Third level exp is not a condition: %s %s" % (cc.T, exp.pretty()))
         
         return [
@@ -488,7 +488,23 @@ class _MetaExpressionDNF(object):
         parts = []
         for i, t in enumerate(and_term):
             op, (aname, aval) = t.T, t.C
-            parts.append(f"a{i}.name='{aname}' and a{i}.value {op} '{aval}'")
+            cname = None
+            if op == "in":
+                if isinstance(aval, int):       cname = "int_array"
+                elif isinstance(aval, float):   cname = "float_array"
+                elif isinstance(aval, bool):    cname = "bool_array"
+                elif isinstance(aval, str):     cname = "string_array"
+                else:
+                        raise ValueError("Unrecognized value type %s for attribute %s" % (type(aval), aname))
+                parts.append(f"a{i}.name='{aname}' and '{aval}' in a{i}.{cname}")
+            else:
+                if isinstance(aval, int):       cname = "int_value"
+                elif isinstance(aval, float):   cname = "float_value"
+                elif isinstance(aval, bool):    cname = "bool_value"
+                elif isinstance(aval, str):     cname = "string_value"
+                else:
+                        raise ValueError("Unrecognized value type %s for attribute %s" % (type(aval), aname))
+                parts.append(f"a{i}.name='{aname}' and a{i}.{cname} {op} '{aval}'")
         joins = [f"inner join file_attributes a{i} on a{i}.file_id = f.id" for i in range(len(parts))]
         return """
             select f.id as fid

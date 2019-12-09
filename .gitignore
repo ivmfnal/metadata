@@ -5,3 +5,4 @@
 *.tabs
 __pycache__
 !.readthedocs.yml
+*-hide
