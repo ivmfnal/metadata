@@ -1,5 +1,4 @@
 import uuid, json
-from psycopg2 import IntegrityError
 
 class AlreadyExistsError(Exception):
     pass
@@ -147,6 +146,7 @@ class DBFile(object):
     __repr__ = __str__
 
     def save(self):
+        from psycopg2 import IntegrityError
         c = self.DB.cursor()
         try:
             c.execute("""

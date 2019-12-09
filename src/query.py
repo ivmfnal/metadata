@@ -1,4 +1,4 @@
-from expressions4 import Query
+from expressions5 import Query
 import psycopg2, sys, getopt, time
 import random
 
@@ -29,7 +29,7 @@ queries = [
 		(
                     dataset test:A			# comment
                     * dataset test:B
-		) where b = true
+		) where b = true and f < 100 and i < 30
         """),
         
         ("meta_filter, intersection", """
