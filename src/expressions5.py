@@ -6,8 +6,9 @@ from lark import Transformer, Tree, Token
 from lark.visitors import Interpreter
 import pprint
 
+CMP_OPS = [">" , "<" , ">=" , "<=" , "==" , "=" , "!="]
 
-grammar = """
+MQL_Grammar = """
 exp:  add_exp                                   -> f_
 
 add_exp : add_exp "+" mul_exp                   -> add
@@ -80,8 +81,6 @@ BOOL: "true" | "false"
 %import common.WS
 %ignore WS
 """
-
-CMP_OPS = [">" , "<" , ">=" , "<=" , "==" , "=" , "!="]
 
 
 class Node(object):
@@ -375,6 +374,7 @@ class _Converter(Transformer):
 class _Assembler(Ascender):
 
     def __init__(self, db, default_namespace):
+        Ascender.__init__(self)
         self.DB = db
         self.DefaultNamespace = default_namespace
         
@@ -444,93 +444,6 @@ class _Optimizer(Ascender):
         else:
             raise ValueError("Unknown node type in Optimizer.apply_meta_exp: %s" % (node,))
             
-class _MetaExpressionDNF(object):
-    
-    def __init__(self, dataset_namespace, dataset_name, meta_exp):
-        # root can be a meta expression in "almost" DNF:
-        #   meta condition
-        #   and(meta_condition,...)
-        #.  or(and(meta_condition,...),...)
-        print("_MetaExpressionDNF: input:", meta_exp.pretty())
-        self.Expression = self.make_canonic(meta_exp)
-        print("_MetaExpressionDNF: canonic:", self.Expression)
-        self.DatasetNamespace = dataset_namespace
-        self.DatasetName = dataset_name
-        
-    def __str__(self):
-        return self.sql()
-        
-    __repr__= __str__
-        
-    def make_canonic(self, exp):
-        if exp.T in CMP_OPS or exp.T == "in":
-            return self.make_canonic(Node("meta_and", [exp]))
-        elif exp.T == "meta_and":
-            return self.make_canonic(Node("meta_or", [exp]))
-        elif exp.T != "meta_or":
-            raise ValueError("Unknown expression top node type %s" % (exp.T,))
-        
-        # make sure it is already in DNF
-        for c in exp.C:
-            if c.T != "meta_and":
-                raise ValueError("The expression is not in DNF. Second level exp is of type %s: %s" % (c.T, exp.pretty()))
-            for cc in c.C:
-                if not cc.T in CMP_OPS and cc.T != "in":
-                    raise ValueError("The expression is not in DNF. Third level exp is not a condition: %s %s" % (cc.T, exp.pretty()))
-        
-        return [
-            and_p.C for and_p in exp.C
-        ]
-
-    def sql_and(self, and_term):
-        print("sql_and: arg:", and_term)
-        assert len(and_term) > 0
-        parts = []
-        for i, t in enumerate(and_term):
-            op, (aname, aval) = t.T, t.C
-            cname = None
-            if op == "in":
-                if isinstance(aval, int):       cname = "int_array"
-                elif isinstance(aval, float):   cname = "float_array"
-                elif isinstance(aval, bool):    cname = "bool_array"
-                elif isinstance(aval, str):     cname = "string_array"
-                else:
-                        raise ValueError("Unrecognized value type %s for attribute %s" % (type(aval), aname))
-                parts.append(f"a{i}.name='{aname}' and '{aval}' in a{i}.{cname}")
-            else:
-                if isinstance(aval, int):       cname = "int_value"
-                elif isinstance(aval, float):   cname = "float_value"
-                elif isinstance(aval, bool):    cname = "bool_value"
-                elif isinstance(aval, str):     cname = "string_value"
-                else:
-                        raise ValueError("Unrecognized value type %s for attribute %s" % (type(aval), aname))
-                parts.append(f"a{i}.name='{aname}' and a{i}.{cname} {op} '{aval}'")
-        joins = [f"inner join file_attributes a{i} on a{i}.file_id = f.id" for i in range(len(parts))]
-        return """
-            select f.id as fid
-                from files f
-                    inner join files_datasets fd on fd.file_id = f.id
-                    %s
-                where 
-                    fd.dataset_namespace = '%s' and fd.dataset_name = '%s' and
-                    %s
-                """ % (
-                " ".join(joins), self.DatasetNamespace, self.DatasetName, " and ".join(parts))
-                
-    def sql_or(self, parts):
-        ands = [self.sql_and(p) for p in parts]
-        return """
-            select files.id, files.namespace, files.name, 
-                        a.name,
-                        a.int_array, a.float_array, a.string_array, a.bool_array,
-                        a.int_value, a.float_value, a.string_value, a.bool_value
-                from files left outer join file_attributes a on (a.file_id = files.id)
-                where files.id in (select distinct fid from (%s) as ands)
-        """ % (" union ".join(ands))
-        
-    def sql(self):
-        return self.sql_or(self.Expression)
-
 class _MetaExpOptmizer(Ascender):
     
     def _flatten_bool(self, op, nodes):
@@ -573,24 +486,43 @@ class _MetaExpOptmizer(Ascender):
         
         if or_present:
             paths = list(self._generate_and_terms([], children))
-            print("paths:")
-            for p in paths:
-                print(p)
+            #print("paths:")
+            #for p in paths:
+            #    print(p)
             paths = [self._flatten_bool("meta_and", p) for p in paths]
-            print("meta_and: children:", paths)
+            #print("meta_and: children:", paths)
             return Node("meta_or", [Node("meta_and", p) for p in paths])
         else:
             return Node("meta_and", children)
             
+    def _make_DNF(self, exp):
+        if exp is None: return None
+        if exp.T in CMP_OPS or exp.T == "in":
+            return self._make_DNF(Node("meta_and", [exp]))
+        elif exp.T == "meta_and":
+            return self._make_DNF(Node("meta_or", [exp]))
+        elif exp.T == "meta_or":
+            or_exp = []
+            assert exp.T == "meta_or"
+            for meta_and in exp.C:
+                and_exp = []
+                assert meta_and.T == "meta_and"
+                for c in meta_and.C:
+                    assert c.T in CMP_OPS or c.T == "in"
+                    and_exp.append((c.T, c.C[0], c.C[1]))
+                or_exp.append(and_exp)
+            return or_exp
+            
+            
     def dataset(self, children, value):
         assert len(children) == 2
         ds, exp = children
-        ds_namespace, ds_name = ds.V
-        return Node("dataset", [ds, None if exp is None else _MetaExpressionDNF(ds_namespace, ds_name, exp)])
+        return Node("dataset", [ds, self._make_DNF(exp)])
             
 class _Evaluator(Ascender):
 
     def __init__(self, db, filters):
+        Ascender.__init__(self)
         self.Filters = filters
         self.DB = db
 
@@ -617,8 +549,7 @@ class _Evaluator(Ascender):
         dataset_name, meta_exp = args
         namespace, name = dataset_name.V
         dataset = DBDataset.get(self.DB, namespace, name)
-        condition = None if meta_exp is None else self.meta_exp_to_sql(meta_exp)
-        files = dataset.list_files(condition=condition, 
+        files = dataset.list_files(condition=meta_exp, 
             relationship="self" if provenance is None else provenance, 
             with_metadata=True)
         #print ("Evaluator.dataset: files:", files)
@@ -732,7 +663,7 @@ class _Evaluator(Ascender):
 
 class Query(object):
 
-    _Parser = Lark(grammar, start="exp")
+    _Parser = Lark(MQL_Grammar, start="exp")
 
     def __init__(self, source, default_namespace=None):
         self.Source = source
@@ -777,7 +708,9 @@ class Query(object):
     def run(self, db, filters={}):
         self.assemble(db, self.DefaultNamespace)
         #print("Query.run: assemled:", self.Assembled.pretty())
-        return _Evaluator(db, filters).walk(self.optimize())
+        optimized = self.optimize()
+        print("Query.run: optimied:", optimized.pretty())
+        return _Evaluator(db, filters).walk(optimized)
         
     @property
     def code(self):

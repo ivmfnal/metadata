@@ -5,7 +5,8 @@ from wsdbtools import ConnectionPool
 from urllib.parse import quote_plus, unquote_plus
 
 from py3 import to_str
-from expressions4 import Query
+from expressions5 import Query
+from Version import Version
 
 class DataHandler(WPHandler):
 
@@ -208,14 +209,17 @@ if __name__ == "__main__":
     config = yaml.load(open(config, "r"), Loader=yaml.SafeLoader)  
     #print (config)     
     application=App(config, DataHandler)
-    application.initJinjaEnvironment(tempdirs=".")
+    application.initJinjaEnvironment(tempdirs=[config.get("templates", ".")], 
+        globals={"GLOBAL_Version": Version})
     application.run_server(8080)
     
 else:
     # running unser uwsgi
     config = os.environ["METADATA_SERVER_CFG"]
-    config = yaml.load(config, Loader=yaml.SafeLoader)       
+    config = yaml.load(open(config, "r"), Loader=yaml.SafeLoader)       
     application = App(config, DataHandler)
+    application.initJinjaEnvironment(tempdirs=[config.get("templates", ".")], 
+        globals={"GLOBAL_Version": Version})
     
     
         

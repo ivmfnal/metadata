@@ -69,21 +69,47 @@
             font: 400 14px verdana;
         }
         
+    div#version {
+        float: right;
+        color: gray;
+        font-size: 10px;
+    }
+        
+        
     </style>
     {% block html_head %}{% endblock %}
 </head>
 
 <body>
+
+<!--  Globals 
+    APP_URL: "{{APP_URL}}"
+    MY_PATH: "{{MY_PATH}}"
+    GLOBAL_AppTopPath: "{{GLOBAL_AppTopPath}}"
+    GLOBAL_AppDirPath: "{{GLOBAL_AppDirPath}}"
+    GLOBAL_ImagesPath: "{{GLOBAL_ImagesPath}}"
+    GLOBAL_AppVersion: "{{GLOBAL_AppVersion}}"
+    GLOBAL_AppObject:  "{{GLOBAL_AppObject}}"
+-->
+    
+
+
 <div id="body">
     <h1>DEMO Metadata Catalog</h1>
     <h2>{% block headline %}{% endblock %}</h2>
 
-    <p>
-        <a href="/datasets">datasets</a>&nbsp;&nbsp;<a href="/query">query</a>&nbsp;&nbsp;<a href="/named_queries">named queries</a>
-    </p>
+    <table class=placement>
+        <tr>
+            <td><a href="{{GLOBAL_AppTopPath}}/datasets">datasets</a></td>
+            <td><a href="{{GLOBAL_AppTopPath}}/query">query</a></td>
+            <td><a href="{{GLOBAL_AppTopPath}}/named_queries">named queries</a></td>
+        </tr>
+    </table>
     
     <div id=content>{% block content %}{% endblock %}</div>
 </div>	<!-- body -->
+
+<div id="version">{{GLOBAL_Version}}</div>
 </body>
 
 </html>

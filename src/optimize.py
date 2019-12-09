@@ -8,7 +8,7 @@ qtxt = """
 dataset A where !(a > 2 or b < 1 or z != 3)
 """
 qtxt = """
-dataset A where 3.0 in f_array and x > 5
+dataset test:M where b = true and i < 10
 """
 
 q = Query(qtxt)

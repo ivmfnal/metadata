@@ -318,6 +318,79 @@ class DBFile(object):
     
         
         
+class MetaExpressionDNF(object):
+    
+    def __init__(self, meta_exp):
+        #
+        # meta_exp is a nested list representing the query filter expression in DNF:
+        #
+        # meta_exp = [meta_or, ...]
+        # meta_or = [meta_and, ...]
+        # meta_and = [(op, aname, avalue), ...]
+        #
+        self.Expression = meta_exp
+        self.validate_exp(meta_exp)
+        
+    def __str__(self):
+        return self.file_ids_sql()
+        
+    __repr__= __str__
+    
+    @staticmethod
+    def validate_exp(exp):
+        for and_exp in exp:
+            if not isinstance(and_exp, list):
+                raise ValueError("The 'and' expression is not a list: %s" % (repr(and_exp),))
+            for cond in and_exp:
+                if not isinstance(cond, tuple) or len(cond) != 3:
+                    raise ValueError("The 'condition' expression must be a tuple of length 3, instead: %s" % (repr(cond),))
+                op, aname, aval = cond
+                if not op in (">" , "<" , ">=" , "<=" , "==" , "=" , "!=", "in"):
+                    raise ValueError("Unrecognized condition operation: %s" % (repr(op,)))                
+        
+
+    def sql_and(self, and_term, dataset_namespace, dataset_name):
+        #print("sql_and: arg:", and_term)
+        assert len(and_term) > 0
+        parts = []
+        for i, t in enumerate(and_term):
+            op, aname, aval = t
+            cname = None
+            if op == "in":
+                if isinstance(aval, bool):    cname = "bool_array"
+                elif isinstance(aval, int):       cname = "int_array"
+                elif isinstance(aval, float):   cname = "float_array"
+                elif isinstance(aval, str):     cname = "string_array"
+                else:
+                        raise ValueError("Unrecognized value type %s for attribute %s" % (type(aval), aname))
+                parts.append(f"a{i}.name='{aname}' and '{aval}' in a{i}.{cname}")
+            else:
+                #print("sql_and: aval:", type(aval), repr(aval))
+                if isinstance(aval, bool):    cname = "bool_value"
+                elif isinstance(aval, int):       cname = "int_value"
+                elif isinstance(aval, float):   cname = "float_value"
+                elif isinstance(aval, str):     cname = "string_value"
+                else:
+                        raise ValueError("Unrecognized value type %s for attribute %s" % (type(aval), aname))
+                parts.append(f"a{i}.name='{aname}' and a{i}.{cname} {op} '{aval}'")
+        joins = [f"inner join file_attributes a{i} on a{i}.file_id = f.id" for i in range(len(parts))]
+        return """
+            select f.id as fid
+                from files f
+                    inner join files_datasets fd on fd.file_id = f.id
+                    %s
+                where 
+                    fd.dataset_namespace = '%s' and fd.dataset_name = '%s' and
+                    %s
+                """ % (
+                " ".join(joins), dataset_namespace, dataset_name, " and ".join(parts))
+                
+    def file_ids_sql(self, dataset_namespace = None, dataset_name = None):
+        dataset_namespace = dataset_namespace or "<dataset_namespace>"      # can be used for debugging
+        dataset_name = dataset_name or "<dataset_name>"                     # can be used for debugging
+        ands = [self.sql_and(and_term, dataset_namespace, dataset_name) for and_term in self.Expression]
+        return "select distinct fid from (%s) as ands" % (" union ".join(ands))
+        
 class DBDataset(object):
 
     def __init__(self, db, namespace, name, parent_namespace=None, parent_name=None):
@@ -379,6 +452,57 @@ class DBDataset(object):
 
 
     def list_files(self, recursive=False, with_metadata = False, condition=None, relationship="self"):
+        # relationship is ignored for now
+        # condition is the filter condition in DNF nested list format
+        c = self.DB.cursor()
+        
+        if condition:
+            file_ids_sql = MetaExpressionDNF(condition).file_ids_sql(self.Namespace, self.Name)
+        if with_metadata:
+                if condition:
+                        sql = f"""select files.id, files.namespace, files.name, 
+                                                a.name,
+                                                a.int_array, a.float_array, a.string_array, a.bool_array,
+                                                a.int_value, a.float_value, a.string_value, a.bool_value
+                                        from files left outer join file_attributes a on (a.file_id = files.id)
+                                        where files.id in (
+                                            {file_ids_sql}
+                                        )
+                                        order by files.id"""
+                        c.execute(sql)
+                else:
+                        c.execute("""select f.id, f.namespace, f.name, 
+                                                a.name,
+                                                a.int_array, a.float_array, a.string_array, a.bool_array,
+                                                a.int_value, a.float_value, a.string_value, a.bool_value
+                                        from files f left outer join file_attributes a on (a.file_id = f.id), 
+                                            files_datasets fd
+                                        where 
+                                                f.id = fd.file_id
+                                                and fd.dataset_namespace=%s and fd.dataset_name=%s
+                                        order by f.id
+                                        """,
+                                (self.Namespace, self.Name))
+                return DBFileSet.from_metadata_tuples(self.DB, fetch_generator(c))
+        else:
+                if condition:
+                        c.execute(f"""select files.id, files.namespace, files.name 
+                                        from files
+                                        where files.id in (
+                                            {file_ids_sql}
+                                        )
+                                        """,
+                                (self.Namespace, self.Name))
+                else:
+                        c.execute("""select f.id, f.namespace, f.name 
+                                        from files f, files_datasets fd
+                                        where f.id = fd.file_id
+                                                and fd.dataset_namespace=%s and fd.dataset_name=%s
+                                        """,
+                                (self.Namespace, self.Name))
+                return DBFileSet.from_shallow(self.DB, fetch_generator(c))
+
+    def ___list_files(self, recursive=False, with_metadata = False, condition=None, relationship="self"):
         # relationship is ignored for now
         c = self.DB.cursor()
         if with_metadata:
@@ -505,6 +629,3 @@ class DBNamedQuery(object):
         )
         
 
-        
-        
-    
