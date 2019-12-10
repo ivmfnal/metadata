@@ -1,4 +1,4 @@
-from expressions5 import Query
+from mql5 import Query
 import sys, getopt, time
 
 qtxt = """
