@@ -8,7 +8,36 @@ from py3 import to_str
 from mql5 import Query
 from Version import Version
 
-class GUIHandler(WPHandler):
+class BaseHandler(WPHandler):
+
+    def extract_file_spec(self, fid, name, relpath):
+        if name is None and fid is None and relpath:
+            if ":" in relpath:
+                name = relpath
+            else:
+                fid = relpath
+        namespace = None
+        if name:
+            namespace, name = name.split(':', 1)
+        return fid or None, namespace or None, name or None
+        
+    def text_chunks(self, gen, chunk=100000):
+        buf = []
+        size = 0
+        for x in gen:
+            n = len(x)
+            buf.append(x)
+            size += n
+            if size >= chunk:
+                yield "".join(buf)
+                size = 0
+                buf = []
+        if buf:
+            yield "".join(buf)
+            
+
+
+class GUIHandler(BaseHandler):
 
     def show_file(self, request, relpath, name=None, fid=None, **args):
         fid, namespace, name = self.extract_file_spec(fid, name, relpath)
@@ -109,7 +138,22 @@ class GUIHandler(WPHandler):
             ds.add_file(f)
             return f.FID
 
-class DataHandler(WPHandler):
+class DataHandler(BaseHandler):
+
+    def json_generator(self, lst):
+        from collections.abc import Iterable
+        assert isinstance(lst, Iterable)
+        yield "["
+        first = True
+        for x in lst:
+            j = json.dumps(x)
+            if not first: j = ","+j
+            yield j
+            first = False
+        yield "]"
+        
+    def json_chunks(self, lst, chunk=100000):
+        return self.text_chunks(self.json_generator(lst), chunk)
 
     def dataset(self, request, relpath, **args):
         method = request.method
@@ -130,30 +174,16 @@ class DataHandler(WPHandler):
             dataset = DBDataset(namespace, name).save()
             return dataset.to_json(), "text/json"  
             
-    def file(self, request, relpath, f="html", **args):
+    def file(self, request, relpath, **args):
         method = request.method
         if method == "POST":
             return self.create_file(request, relpath, **args)
         elif method == "PUT":
             return self.update_file(request, relpath, **args)
         else:
-            if f == "html":
-                return self.show_file(request, relpath, **args)
-            else:
-                return self.get_file(request, relpath, **args)
+            return self.get_file(request, relpath, **args)
             
-    def extract_file_spec(self, fid, name, relpath):
-        if name is None and fid is None and relpath:
-            if ":" in relpath:
-                name = relpath
-            else:
-                fid = relpath
-        namespace = None
-        if name:
-            namespace, name = name.split(':', 1)
-        return fid or None, namespace or None, name or None
-
-    def get_file(self, request, relpath, name=None, fid=None, with_metadata="no", **args):
+    def get_file(self, request, relpath, name=None, fid=None, with_metadata="yes", **args):
         with_metadata = with_metadata == "yes"
         fid, namespace, name = self.extract_file_spec(fid, name, relpath)
         if fid and namespace:   
@@ -173,35 +203,6 @@ class DataHandler(WPHandler):
         return self.json_chunks((
             { "name":ds.Name, "namespace":ds.Namespace } for ds in datasets))
 
-    def json_generator(self, lst):
-        from collections.abc import Iterable
-        assert isinstance(lst, Iterable)
-        yield "["
-        first = True
-        for x in lst:
-            j = json.dumps(x)
-            if not first: j = ","+j
-            yield j
-            first = False
-        yield "]"
-        
-    def text_chunks(self, gen, chunk=100000):
-        buf = []
-        size = 0
-        for x in gen:
-            n = len(x)
-            buf.append(x)
-            size += n
-            if size >= chunk:
-                yield "".join(buf)
-                size = 0
-                buf = []
-        if buf:
-            yield "".join(buf)
-            
-    def json_chunks(self, lst, chunk=100000):
-        return self.text_chunks(self.json_generator(lst), chunk)
-            
     def query(self, request, relpath, format="html", query=None, namespace=None, **args):
         if query is not None:
             query_text = unquote_plus(query)
