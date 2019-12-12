@@ -39,6 +39,9 @@ class BaseHandler(WPHandler):
 
 class GUIHandler(BaseHandler):
 
+    def index(self, request, relpath, **args):
+        return self.redirect("./datasets")
+
     def show_file(self, request, relpath, name=None, fid=None, **args):
         fid, namespace, name = self.extract_file_spec(fid, name, relpath)
         with self.App.DB.connect() as db:
@@ -51,14 +54,37 @@ class GUIHandler(BaseHandler):
         datasets = sorted(list(datasets), key=lambda x: (x.Namespace, x.Name))
         return self.render_to_response("datasets.html", datasets=datasets)
 
-    def dataset_files(self, request, relpath, format="html", dataset=None):
+    def dataset_files(self, request, relpath, dataset=None, with_meta="no"):
+        with_meta = with_meta == "yes"
         namespace, name = (dataset or relpath).split(":",1)
         with self.App.DB.connect() as db:
             dataset = DBDataset.get(db, namespace, name)
-            files = sorted(list(dataset.list_files(with_metadata=True)), key=lambda x: (x.Namespace, x.Name))
-        return self.render_to_response("dataset_files.html", files=files)
-	
+            files = sorted(list(dataset.list_files(with_metadata=with_meta)), key=lambda x: (x.Namespace, x.Name))
+        return self.render_to_response("dataset_files.html", files=files, dataset=dataset, with_meta=with_meta)
+        
+    def _meta_stats(self, files):
+        #
+        # returns [ (meta_name, [(value, count), ...]) ... ]
+        #
+        stats = {}
+        for f in files:
+            for n, v in f.Metadata.items():
+                if isinstance(v, list): v = tuple(v)
+                n_dict = stats.setdefault(n, {})
+                count = n_dict.setdefault(v, 0)
+                n_dict[v] = count + 1
+        out = []
+        for name, counts in stats.items():
+            clist = []
+            for v, c in counts.items():
+                if isinstance(v, tuple):    v = list(v)
+                clist.append((v, c))
+            out.append((name, sorted(clist, key=lambda vc: (-vc[1], vc[0]))))
+        return sorted(out)
+        
     def query(self, request, relpath, query=None, namespace=None, **args):
+        namespace = namespace or request.POST.get("namespace") or self.App.DefaultNamespace
+        #print("namespace:", namespace)
         if query is not None:
             query_text = unquote_plus(query)
         elif "query" in request.POST:
@@ -66,27 +92,49 @@ class GUIHandler(BaseHandler):
         else:
             query_text = request.body_file.read()
         query_text = to_str(query_text or "")
-        if namespace is None:
-            namespace = request.POST.get("namespace")
-        t0 = time.time()
-        if query_text:
-            with self.App.DB.connect() as db:
-                results = Query(query_text, default_namespace=namespace or None).run(db, self.App.filters())
-            url_query = query_text.replace("\n"," ")
-            while "  " in url_query:
-                url_query = url_query.replace("  ", " ")
-            url_query = quote_plus(url_query)
-            if namespace: url_query += "&namespace=%s" % (namespace,)
-        else:
-            results = None
-            url_query = None
-        files = None if results is None else list(results)
-        #print("query: results:", len(files))
-        runtime = time.time() - t0
+        results = None
+        url_query = None
+        files = None
+        runtime = None
+        meta_stats = None
+        with_meta = True
+        if request.method == "POST":
+                if request.POST["action"] == "run":
+                        with_meta = request.POST.get("with_meta", "off") == "on"
+                        t0 = time.time()
+                        if query_text:
+                            #print("with_meta=", with_meta)
+                            with self.App.DB.connect() as db:
+                                results = Query(query_text, default_namespace=namespace or None)    \
+                                    .run(db, self.App.filters(), limit=1000, with_meta=with_meta)
+                            url_query = query_text.replace("\n"," ")
+                            while "  " in url_query:
+                                url_query = url_query.replace("  ", " ")
+                            url_query = quote_plus(url_query)
+                            if namespace: url_query += "&namespace=%s" % (namespace,)
+                        else:
+                            results = None
+                            url_query = None
+                        files = None if results is None else list(results)
+                        meta_stats = None if not with_meta else self._meta_stats(files)
+                        #print("meta_stats:", meta_stats, "    with_meta:", with_meta, request.POST.get("with_meta"))
+                            
+                        #print("query: results:", len(files))
+                        runtime = time.time() - t0
+                elif request.POST["action"] == "load":
+                        with self.App.DB.connect() as db:
+                            namespace, name = request.POST["query_to_load"].split(":",1)
+                            query_text = DBNamedQuery.get(db, namespace, name).Source
+
+        with self.App.DB.connect() as db:
+            queries = list(DBNamedQuery.list(db, namespace))
+            queries = sorted(queries, key=lambda q: (q.Namespace, q.Name))
+        
         resp = self.render_to_response("query.html", 
+            named_queries = queries,
             query=query_text, url_query=url_query,
             show_files=files is not None, files=files, 
-            runtime = runtime,
+            runtime = runtime, meta_stats = meta_stats, with_meta = with_meta,
             namespace=namespace or "")
         return resp
         
@@ -155,6 +203,12 @@ class DataHandler(BaseHandler):
     def json_chunks(self, lst, chunk=100000):
         return self.text_chunks(self.json_generator(lst), chunk)
 
+    def datasets(self, request, relpath, **args):
+        with self.App.DB.connect() as db:
+            datasets = DBDataset.list(db)
+        return self.json_chunks((
+            { "name":ds.Name, "namespace":ds.Namespace } for ds in datasets))
+
     def dataset(self, request, relpath, **args):
         method = request.method
         if method == "POST":
@@ -197,13 +251,9 @@ class DataHandler(BaseHandler):
                 f = DBFile.get(db, namespace=namespace, name=name)
             return f.to_json(with_metadata=with_metadata), "text/json"
             
-    def datasets(self, request, relpath, **args):
-        with self.App.DB.connect() as db:
-            datasets = DBDataset.list(db)
-        return self.json_chunks((
-            { "name":ds.Name, "namespace":ds.Namespace } for ds in datasets))
-
-    def query(self, request, relpath, format="html", query=None, namespace=None, **args):
+    def query(self, request, relpath, query=None, namespace=None, with_meta="no", **args):
+        with_meta = with_meta == "yes"
+        namespace = namespace or self.App.DefaultNamespace
         if query is not None:
             query_text = unquote_plus(query)
         elif "query" in request.POST:
@@ -211,12 +261,11 @@ class DataHandler(BaseHandler):
         else:
             query_text = request.body_file.read()
         query_text = to_str(query_text or "")
-        if namespace is None:
-            namespace = request.POST.get("namespace")
         t0 = time.time()
         if query_text:
             with self.App.DB.connect() as db:
-                results = Query(query_text, default_namespace=namespace or None).run(db, self.App.filters())
+                results = Query(query_text, default_namespace=namespace or None) \
+                    .run(db, self.App.filters(), with_meta=with_meta)
             url_query = query_text.replace("\n"," ")
             while "  " in url_query:
                 url_query = url_query.replace("  ", " ")
@@ -227,15 +276,22 @@ class DataHandler(BaseHandler):
             url_query = None
         if not results:
             return "[]", "text/json"
-        data = (
-            { 
-                "filename":f.Name, "namespace":f.Namespace,
-                "fid":f.FID,
-                "metadata": f.Metadata or {}
-            } for f in results )
+        if with_meta:
+            data = (
+                { 
+                    "filename":f.Name, "namespace":f.Namespace,
+                    "fid":f.FID,
+                    "metadata": f.Metadata or {}
+                } for f in results )
+        else:
+            data = (
+                { 
+                    "filename":f.Name, "namespace":f.Namespace,
+                    "fid":f.FID
+                } for f in results )
         return self.json_chunks(data), "text/json"
         
-    def named_queries(self, request, relpath, format="html", namespace=None, **args):
+    def named_queries(self, request, relpath, namespace=None, **args):
         with self.App.DB.connect() as db:
             queries = list(DBNamedQuery.list(db, namespace))
         data = ("%s:%s" % (q.Namespace, q.Name) for q in queries)
@@ -244,14 +300,19 @@ class DataHandler(BaseHandler):
 class RootHandler(WPHandler):
     
     def __init__(self, *params, **args):
+        WPHandler.__init__(self, *params, **args)
         self.data = DataHandler(*params, **args)
         self.gui = GUIHandler(*params, **args)
+
+    def index(self, req, relpath, **args):
+        return self.redirect("./gui/index")
         
 class App(WPApp):
 
     def __init__(self, cfg, *args):
         WPApp.__init__(self, *args)
         self.Cfg = cfg
+        self.DefaultNamespace = cfg.get("default_namespace")
         self.DB = ConnectionPool(postgres=cfg["database"]["connstr"])
         self.Filters = {}
         if "filters" in cfg:

@@ -19,8 +19,9 @@
             margin-right: 30px;
             margin-left: 30px;
             margin-top: 20px;
-	    width: 100%;
+            padding: 10px 10px;
 	}
+        
         
         table.data {
             border-collapse: collapse;
@@ -36,10 +37,15 @@
         }
         
         .data td, .data th {
-            padding: 5px 10px;
-            border: 1px solid gray;
+            padding: 3px 5px;
+            border: 1px solid #CCC;
         }
-
+        
+        .data th {
+            font-weight: bold;
+            text-align: left;
+        }
+        
         .tabular td, .tabular th {
             padding: 5px;
         }
@@ -47,6 +53,13 @@
         .tabular th {
             font-weight: bold;
             text-align:  right;
+        }
+        
+        td.left {
+            text-align: left;
+        }
+        td.right {
+            text-align: right;
         }
 
 	.form th {
@@ -96,7 +109,6 @@
 
 <div id="body">
     <h1>DEMO Metadata Catalog</h1>
-    <h2>{% block headline %}{% endblock %}</h2>
 
     <table class=placement>
         <tr>
@@ -106,6 +118,7 @@
         </tr>
     </table>
     
+    <h2>{% block headline %}{% endblock %}</h2>
     <div id=content>{% block content %}{% endblock %}</div>
 </div>	<!-- body -->
 

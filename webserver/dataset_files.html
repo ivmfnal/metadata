@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block headline %}Datasets{% endblock %}
+{% block headline %}Dataset {{dataset.Namespace}}:{{dataset.Name}} files{% endblock %}
 
 {% block content %}
 
@@ -8,16 +8,18 @@
 	<tr>
 		<th>Namespace</th>
 		<th>Name</th>
-		<th colspan=0>Metadata</th>
+		{% if with_meta %}<th colspan=0>Metadata</th>{% endif %}
 	</tr>
 	{% for f in files %}
 		<tr>
 			<td>{{f.Namespace}}</td><td><a href="./show_file?fid={{f.FID}}">{{f.Name}}</a></td>
-				{% for k, v in f.Metadata.items()|sort %}
-			<td>
-					{{k}}={{v}}
-			</td>
-				{% endfor %}
+                {% if with_meta %}
+				    {% for k, v in f.Metadata.items()|sort %}
+			            <td>
+					            {{k}}={{v}}
+			            </td>
+				    {% endfor %}
+                {% endif %}
 		</tr>	
 	{% endfor %}
 </table>

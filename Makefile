@@ -17,6 +17,7 @@ tars:   build $(TARDIR)
 	
 
 build:  clean $(BUILD_DIR) 
+	cd src; echo "Version='$(Version)'" > Version.py
 	cd src; make LIBDIR=$(LIBDIR) VERSION=$(VERSION) build
 	cd webserver; make SERVER_DIR=$(SERVER_DIR) LIBDIR=$(LIBDIR) VERSION=$(VERSION) build
 	
