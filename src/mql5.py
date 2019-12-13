@@ -775,9 +775,9 @@ class Query(object):
         #print("Query.run: assemled:", self.Assembled.pretty())
         optimized = self.optimize()
         #print("Query.run: optimied:", optimized.pretty())
-        print("Query.run: with_meta=", with_meta)
+        #print("Query.run: with_meta=", with_meta)
         _MetaFlagPusher().visit(optimized, with_meta)
-        print("Query.run: flag_applied:\n%s" % (optimized.pretty(),))
+        #print("Query.run: flag_applied:\n%s" % (optimized.pretty(),))
         out = _Evaluator(db, filters).walk(optimized)
         if limit is None:
             return out

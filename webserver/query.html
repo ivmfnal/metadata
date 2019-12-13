@@ -25,16 +25,27 @@
             <td></td>
 
         </tr>
+        {#
+		<tr>
+			<th>Save as:</th><td>namespace:&nbsp<input type="text" name="namespace" value="{{namespace}}"/>&nbsp;&nbsp
+            {{- '' -}}
+            name:&nbsp<input type="text" name="name"/>&nbsp;&nbsp
+            {{- '' -}}
+            <input type="submit" name="action" value="save"/></td>
+            <td></td>
+		</tr>
+        #}
+        <tr><td colspan=3>&nbsp;</td></tr>
         <tr>
-            <th>Include metadata</th>
+            <th>Run:</th>
             <td><input type="checkbox" name="with_meta" 
                 {% if with_meta %}checked="checked"{% endif %}
-            ></td>
+            >&nbsp;include metadata <input type="submit" name="action" value="run"/></td>
             <td></td>
         </tr>
         <tr>
             <td></td>
-            <td><input type="submit" name="action" value="run"/></td>
+            <td></td>
             <td></td>
         </tr>
     </table>
@@ -43,54 +54,48 @@
 
     
 {% if show_files %}
-<table class=placement>
-    <tr><td colspan=2><hr/></td></tr>
-    <tr>
-        <td>
-            <p><h3>Results</h3></p>
-            <p>{{files|length}} files<br/><span style="color:gray; font-size: 8pt"><i>results in GUI are always limited to 1000 files</i></span></p>
-            <p>Runtime:{{"%.3f"|format(runtime)}} seconds</p>
-            <p><a href="{{GLOBAL_AppTopPath}}/data/query?with_meta=no&query={{url_query}}">json</a></p>
-        </td>
-        <td>
-            {% if meta_stats %}
-                <h3>Metadata values distribution</h3>
-                <table class="data">
-                    <tr>
-                        <th>Attribute</th><th>Value</th><th>Count</th>
-                    </tr>
-                    {% for name, counts in meta_stats %}
-                        {% for v, c in counts %}
-                            <tr>
-                                {% if loop.first %}<td rowspan="{{counts|length}}">{{name}}</td>{% endif %}
-                                <td>{{v}}</td><td>{{c}}</td>
-                            </tr>
-                        {% endfor %}
-                    {% endfor %}
-                </table>
-            {% endif %}
-            
-            <h3>Files</h3>
-            <table class="data">
-            <!--
+    <div class=headline>Query results</div>
+    <p>Runtime: {{"%.3f"|format(runtime)}} seconds<br/>
+        Files: {{files|length}} (results in GUI are always limited to 1000 files)<br/>
+        JSON:&nbsp;<a href="{{GLOBAL_AppTopPath}}/data/query?with_meta=ye&query={{url_query}}">with</a> 
+        <a href="{{GLOBAL_AppTopPath}}/data/query?with_meta=no&query={{url_query}}">without</a> metadata
+    </p>
+
+    {% if meta_stats %}
+        <h3>Metadata values distribution</h3>
+        <table class="data">
             <tr>
-                <th>File name</th><th>Meatadata</th>
+                <th>Attribute</th><th>Value</th><th>Count</th>
             </tr>
-            -->
-            {% for f in files|sort(attribute="Name") %}
-                <tr>
-                    <td><a class="left" href="./show_file?fid={{f.FID}}">{{f.Namespace}}:{{f.Name}}</a></td>
-                    {% if f.Metadata %}
-                        {% for k, v in f.Metadata.items()|sort %}
-                            <td>{{k}}={{v}}</td>
-                        {% endfor %}
-                    {% endif %}
-                </tr>
+            {% for name, counts in meta_stats %}
+                {% for v, c in counts %}
+                    <tr>
+                        {% if loop.first %}<td rowspan="{{counts|length}}">{{name}}</td>{% endif %}
+                        <td>{{v}}</td><td>{{c}}</td>
+                    </tr>
+                {% endfor %}
             {% endfor %}
-            </table>
-        </td>
+        </table>
+    {% endif %}
+
+    <h3>Files</h3>
+    <table class="data">
+    <!--
+    <tr>
+        <th>File name</th><th>Meatadata</th>
     </tr>
-</table>
+    -->
+    {% for f in files|sort(attribute="Name") %}
+        <tr>
+            <td><a class="left" href="./show_file?fid={{f.FID}}">{{f.Namespace}}:{{f.Name}}</a></td>
+            {% if f.Metadata %}
+                {% for k, v in f.Metadata.items()|sort %}
+                    <td>{{k}}={{v}}</td>
+                {% endfor %}
+            {% endif %}
+        </tr>
+    {% endfor %}
+    </table>
 {% endif %}
 
     

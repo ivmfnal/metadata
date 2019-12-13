@@ -326,25 +326,28 @@ class App(WPApp):
        
 import yaml, os
 
+import sys, getopt
+opts, args = getopt.getopt(sys.argv[1:], "c:")
+opts = dict(opts)
+config = opts.get("-c", os.environ.get("METADATA_SERVER_CFG"))
+if not config:
+    print("Configuration file must be provided either using -c command line option or via METADATA_SERVER_CFG environment variable")
+    sys.exit(1)
+config = yaml.load(open(config, "r"), Loader=yaml.SafeLoader)  
+application=App(config, RootHandler)
+application.initJinjaEnvironment(
+    tempdirs=[config.get("templates", ".")], 
+    globals={
+        "GLOBAL_Version": Version, 
+        "GLOBAL_SiteTitle": config.get("site_title", "DEMO Metadata Catalog")
+    }
+)
+
 if __name__ == "__main__":
-    import sys, getopt
-    opts, args = getopt.getopt(sys.argv[1:], "c:")
-    opts = dict(opts)
-    config = opts.get("-c", os.environ.get("METADATA_SERVER_CFG"))
-    config = yaml.load(open(config, "r"), Loader=yaml.SafeLoader)  
-    #print (config)     
-    application=App(config, RootHandler)
-    application.initJinjaEnvironment(tempdirs=[config.get("templates", ".")], 
-        globals={"GLOBAL_Version": Version})
     application.run_server(8080)
-    
 else:
-    # running unser uwsgi
-    config = os.environ["METADATA_SERVER_CFG"]
-    config = yaml.load(open(config, "r"), Loader=yaml.SafeLoader)       
-    application = App(config, RootHandler)
-    application.initJinjaEnvironment(tempdirs=[config.get("templates", ".")], 
-        globals={"GLOBAL_Version": Version})
+    # running under uwsgi
+    pass
     
     
         
