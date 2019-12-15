@@ -1,4 +1,4 @@
-from webpie import WPApp, WPHandler
+from webpie import WPApp, WPHandler, Response
 import psycopg2, json, time, secrets
 from dbobjects import DBFile, DBDataset, DBFileSet, DBNamedQuery
 from wsdbtools import ConnectionPool
@@ -6,6 +6,7 @@ from urllib.parse import quote_plus, unquote_plus
 
 from py3 import to_str
 from mql5 import Query
+from signed_token import SignedToken
 from Version import Version
 
 class BaseHandler(WPHandler):
@@ -27,6 +28,10 @@ class BaseHandler(WPHandler):
 
 
 class GUIHandler(BaseHandler):
+
+    def jinja_globals(self):
+        user = self.App.user_from_request(self.Request)
+        return {"GLOBAL_User":user}
 
     def index(self, request, relpath, **args):
         return self.redirect("./datasets")
@@ -313,25 +318,27 @@ class DataHandler(BaseHandler):
             
 class AuthHandler(WPHandler):
 
-    TokenExpiration = 24*3600*3600
-    
-    def auth(self, request, relpath, **args):
+    def whoami(self, request, relpath, **args):
+        return str(self.App.user_from_request(request)), "text/plain"
+        
+    def auth(self, request, relpath, redirect=None, **args):
         from rfc2617 import digest_server
         # give them cookie with the signed token
         
         ok, data = digest_server("metadata", request.environ, self.App.get_password)
         if ok:
-            user = data
-            token = SignedToken({"user": user}, expiration=self.TokenExpiration).encode(self.App.TokenSecret)
-            resp = Response(token, content_type="text/plain")
-            resp.set_cookie("auth_token", token, max_age = int(self.TokenExpiration))
+            resp = self.App.response_with_auth_cookie(data, redirect)
             return resp
         elif data:
-            resp = Response("Authorization required", status=401, headers={
-                'WWW-Authenticate': header
+            return Response("Authorization required", status=401, headers={
+                'WWW-Authenticate': data
             })
+
         else:
             return 403, "Authentication failed"
+
+    def logout(self, request, relpath, redirect=None, **args):
+        return self.App.response_with_unset_auth_cookie(redirect)
 
 class RootHandler(WPHandler):
     
@@ -365,10 +372,40 @@ class App(WPApp):
         #        
         self.Users = cfg["users"]       #   { username: { "passwrord":password }, ...}
         self.TokenSecret = secrets.token_bytes(128)     # used to sign tokens
+        self.Tokens = {}		# { token id -> token object }
         
     def get_password(self, realm, username):
         # realm is ignored for now
         return self.Users.get(username).get("password")
+
+    TokenExpiration = 24*3600*3600
+
+    def user_from_request(self, request):
+        #print("user_from_request: cookies:", request.cookies)
+        encoded = request.cookies.get("auth_token")
+        #print("user_from_request: encoded:", encoded)
+        if not encoded:	return None
+        try:	token = SignedToken.decode(encoded, self.TokenSecret)
+        except:	return None		# invalid token
+        return token.Payload.get("user")
+
+    def response_with_auth_cookie(self, user, redirect):
+        token = SignedToken({"user": user}, expiration=self.TokenExpiration).encode(self.TokenSecret)
+        if redirect:
+            resp = Response(status=302, headers={"Location": redirect})
+        else:
+            resp = Response(status=200, content_type="text/plain")
+        resp.set_cookie("auth_token", token, max_age = int(self.TokenExpiration))
+        return resp
+
+    def response_with_unset_auth_cookie(self, redirect):
+        if redirect:
+            resp = Response(status=302, headers={"Location": redirect})
+        else:
+            resp = Response(status=200, content_type="text/plain")
+        try:	resp.set_cookie("auth_token", "-", max_age=100)
+        except:	pass
+        return resp
 
     def filters(self):
         return self.Filters

@@ -98,7 +98,14 @@
         font-weight: bold;
         padding: 5px 15px;
         font-size: 14pt;
+        margin-top: 15px;
+        margin-bottom: 15px;
     }
+
+    #main_menu td, #main_menu th {
+	white-space: nowrap;
+	}
+
         
         
     </style>
@@ -118,6 +125,7 @@
     GLOBAL_ImagesPath: "{{GLOBAL_ImagesPath}}"
     GLOBAL_AppVersion: "{{GLOBAL_AppVersion}}"
     GLOBAL_AppObject:  "{{GLOBAL_AppObject}}"
+    GLOBAL_User:  "{{GLOBAL_User}}"
 -->
     
 
@@ -125,16 +133,26 @@
 <div id="body">
     <h1>{{GLOBAL_SiteTitle}}</h1>
 
-    <table class=placement>
-        <tr>
-            <td><a href="{{GLOBAL_AppTopPath}}/gui/datasets">datasets</a></td>
-            <td><a href="{{GLOBAL_AppTopPath}}/gui/query">query</a></td>
-            <td><a href="{{GLOBAL_AppTopPath}}/gui/named_queries">named queries</a></td>
-        </tr>
-    </table>
+    <div id="main_menu">
+	<table class=placement>
+		<tr>
+		    <td><a href="{{GLOBAL_AppTopPath}}/gui/datasets">datasets</a></td>
+		    <td><a href="{{GLOBAL_AppTopPath}}/gui/query">query</a></td>
+		    <td><a href="{{GLOBAL_AppTopPath}}/gui/named_queries">named queries</a></td>
+		    <td width="100%" align="right"> 
+                        {% if GLOBAL_User %}
+                            logged in as {{GLOBAL_User}} <a href="{{GLOBAL_AppTopPath}}/auth/logout?redirect={{GLOBAL_AppTopPath}}/gui/index">log out</a>
+                        {% else %}
+                            <a href="{{GLOBAL_AppTopPath}}/auth/auth?redirect={{GLOBAL_AppTopPath}}/gui/index">log in</a>
+                        {% endif %}</td>
+		</tr>
+	</table>
+    </div>
     
-    <h2>{% block headline %}{% endblock %}</h2>
-    <div id=content>{% block content %}{% endblock %}</div>
+    <div id="headline" style="clear:both">
+	<h2>{% block headline %}{% endblock %}</h2>
+    </div>
+    <div id=content style="clear:both">{% block content %}{% endblock %}</div>
 </div>	<!-- body -->
 
 <div id="version">Version: {{GLOBAL_AppVersion}}</div>

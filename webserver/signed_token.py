@@ -1,4 +1,4 @@
-import hashlib, json, base64, time
+import hashlib, json, base64, time, uuid
 from struct import pack, unpack
 
 class crypt(object):
@@ -74,7 +74,8 @@ class SignedToken(object):
     
     #PreferredAlgorithms = [a for a in AcceptedAlgorithms if a in AvailableAlgorithms]
     
-    def __init__(self, payload, expiration=None, not_before=None):
+    def __init__(self, payload, expiration=None, not_before=None, tid=None):
+        self.TID = tid if tid is not None else uuid.uuid1().hex
         self.Alg = [a for a in self.AcceptedAlgorithms if a in self.AvailableAlgorithms][0]
         self.Payload = payload
         self.IssuedAt = time.time()
@@ -82,7 +83,7 @@ class SignedToken(object):
         self.Expiration = expiration if (expiration is None or expiration > 365*24*3600) else self.IssuedAt + expiration
         
     def __str__(self):
-        return "SignedToken(alg=%s, iat=%s, nbf=%s, exp=%s, payload=%s)" % (self.Alg, self.IssuedAt, self.NotBefore, self.Expiration,
+        return "SignedToken(%s %s iat=%s, nbf=%s, exp=%s, payload=%s)" % (self.TID, self.Alg, self.IssuedAt, self.NotBefore, self.Expiration,
             self.Payload)
         
     @staticmethod
@@ -108,6 +109,7 @@ class SignedToken(object):
         
     @staticmethod
     def unpack(txt):
+        if isinstance(txt, str):	txt = txt.encode("utf-8")
         words = txt.split(b'.')
         assert len(words) == 3, "Token must consist of 3 words, got %d instead: [%s]" % (len(words), txt)
         return [base64.b64decode(w) for w in words]
@@ -121,7 +123,7 @@ class SignedToken(object):
 
     def encode(self, secret, key=None):
         payload = self.serialize(self.Payload)      # this will be bytes
-        header = {"iat":self.IssuedAt, "exp":self.Expiration, "alg":self.Alg, "nbf":self.NotBefore}
+        header = {"iat":self.IssuedAt, "exp":self.Expiration, "alg":self.Alg, "nbf":self.NotBefore, "tid":self.TID}
         if key is not None:
             # encrypt the payload
             if isinstance(key, str):    key = key.encode("utf-8")
@@ -143,6 +145,7 @@ class SignedToken(object):
         exp = header_decoded.get("exp")
         nbf = header_decoded.get("nbf")
         iat = header_decoded.get("iat")
+        tid = header_decoded.get("tid", uuid.uuid1().hex)		# in case there is none ??
         if secret is not None:
             if not alg in SignedToken.AcceptedAlgorithms:
                 raise SignedTokenUnacceptedAlgorithmError(alg)
@@ -166,7 +169,7 @@ class SignedToken(object):
             
         payload = SignedToken.deserialize(payload)
         
-        token = SignedToken(payload, exp, nbf)
+        token = SignedToken(payload, exp, nbf, tid=tid)
         token.IssuedAt = iat
         token.Alg = alg
         token.Header = header_decoded
