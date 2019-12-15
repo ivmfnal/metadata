@@ -1,5 +1,5 @@
 PRODUCT=metadata
-VERSION=0.2
+VERSION=0.3
 BUILD_DIR=$(HOME)/build/$(PRODUCT)
 TARDIR=/tmp
 LIBDIR=$(BUILD_DIR)/lib
@@ -17,7 +17,6 @@ tars:   build $(TARDIR)
 	
 
 build:  clean $(BUILD_DIR) 
-	cd src; echo "Version='$(Version)'" > Version.py
 	cd src; make LIBDIR=$(LIBDIR) VERSION=$(VERSION) build
 	cd webserver; make SERVER_DIR=$(SERVER_DIR) LIBDIR=$(LIBDIR) VERSION=$(VERSION) build
 	

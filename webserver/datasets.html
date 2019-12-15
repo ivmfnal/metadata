@@ -11,8 +11,16 @@
 		<th>Files</th>
 	</tr>
 	{% for ds in datasets %}
-		<tr><td>{{ds.Namespace}}</td><td>{{ds.Name}}</td>
-                <td><a href="./dataset_files?dataset={{ds.Namespace}}:{{ds.Name}}">{{ds.nfiles}}</a></td></tr>
+		<tr>
+            <td>{{ds.Namespace}}</td><td>{{ds.Name}}</td>
+            <td id="count:{{ds.Namespace}}:{{ds.Name}}" class="right"></td>
+            <script>
+		var out = document.getElementById("count:{{ds.Namespace}}:{{ds.Name}}");
+		out.data_received = function(data, param) { this.innerHTML = "" + data.nfiles; };
+                HTTPRequest("{{GLOBAL_AppTopPath}}/data/dataset_count/{{ds.Namespace}}:{{ds.Name}}", 
+			out, null, "json");
+            </script>
+        </tr>
 	{% endfor %}
 </table>
 

@@ -83,9 +83,13 @@
         }
         
     div#version {
-        float: right;
         color: gray;
         font-size: 10px;
+        font-style: italic;
+        
+        position: fixed;
+        top: 3px;
+        right: 5px;
     }
     
     div.headline {
@@ -98,6 +102,9 @@
         
         
     </style>
+    
+    <script src="{{GLOBAL_AppTopPath}}/static/js/request.js"></script>
+    
     {% block html_head %}{% endblock %}
 </head>
 
@@ -130,7 +137,7 @@
     <div id=content>{% block content %}{% endblock %}</div>
 </div>	<!-- body -->
 
-<div id="version">{{GLOBAL_Version}}</div>
+<div id="version">Version: {{GLOBAL_AppVersion}}</div>
 </body>
 
 </html>

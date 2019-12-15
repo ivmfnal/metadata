@@ -10,17 +10,6 @@ from Version import Version
 
 class BaseHandler(WPHandler):
 
-    def extract_file_spec(self, fid, name, relpath):
-        if name is None and fid is None and relpath:
-            if ":" in relpath:
-                name = relpath
-            else:
-                fid = relpath
-        namespace = None
-        if name:
-            namespace, name = name.split(':', 1)
-        return fid or None, namespace or None, name or None
-        
     def text_chunks(self, gen, chunk=100000):
         buf = []
         size = 0
@@ -42,10 +31,9 @@ class GUIHandler(BaseHandler):
     def index(self, request, relpath, **args):
         return self.redirect("./datasets")
 
-    def show_file(self, request, relpath, name=None, fid=None, **args):
-        fid, namespace, name = self.extract_file_spec(fid, name, relpath)
+    def show_file(self, request, relpath, fid=None, **args):
         with self.App.DB.connect() as db:
-            f = DBFile.get(db, fid=fid, namespace=namespace, name=name, with_metadata=True)
+            f = DBFile.get(db, fid=fid, with_metadata=True)
             return self.render_to_response("show_file.html", f=f)
 
     def datasets(self, request, relpath, **args):
@@ -169,23 +157,6 @@ class GUIHandler(BaseHandler):
         
         return self.render_to_response("named_query.html", query=query, edit = True)
         
-    def create_file(self, request, relpath, name=None, fid=None, dataset=None, **args):
-        assert dataset is not None
-        dataset_namespace, dataset_name = dataset.split(":", 1)
-        fid, namespace, name = self.extract_file_spec(fid, name, relpath)
-        assert namespace is not None and name is not None
-        with self.App.DB.connect() as db:
-            # TODO: make it a single DB transaction
-            ds = DBDataset.get(db, dataset_namespace, dataset_name)
-            f = DBFile(db, name=name, namespace=namespace, fid=fid).save()
-            if request.body_file:
-                metadata = request.body_file.read()
-                if metadata:
-                    metadata = json.loads(metadata)
-                    f.save_metadata(metadata)
-            ds.add_file(f)
-            return f.FID
-
 class DataHandler(BaseHandler):
 
     def json_generator(self, lst):
@@ -222,6 +193,15 @@ class DataHandler(BaseHandler):
             dataset = DBDataset.get(db, namespace, name)
             return dataset.to_json(), "text/json"
             
+    def dataset_count(self, request, relpath, **args):
+        namespace, name = relpath.split(":", 1)
+        with self.App.DB.connect() as db:
+            nfiles = DBDataset(db, namespace, name).nfiles
+        return '{"nfiles":%d}\n' % (nfiles,), {"Content-Type":"text/json",
+            "Access-Control-Allow-Origin":"*"
+        } 
+        
+            
     def create_dataset(self, request, relpath, **args):
         with self.App.DB.connect() as db:
             namespace, name = relpath.split(":", 1)
@@ -236,14 +216,48 @@ class DataHandler(BaseHandler):
             return self.update_file(request, relpath, **args)
         else:
             return self.get_file(request, relpath, **args)
+
+    def create_file(self, request, relpath, fid=None, parent=None, **args):
+        # method: POST, URI: .../file/dataset:name/namespace:name?fid=fid&parent=fid
+        # request body = metadata in JSON format
+        dataset_spec, file_spec = relpath.split("/",1)
+        dataset_namespace, dataset_name = dataset_spec.split(":",1)
+        file_namespace, file_name = file_spec.split(":",1)
+        metadata = json.loads(request.body) if request.body else None
+        with self.App.DB.connect() as db:
+                ds = DBDataset.get(db, dataset_namespace, dataset_name)
+                f = DBFile(db, file_namespace, file_name, fid=fid).save(do_commit=False)
+                if metadata:
+                        f.save_metadata(metadata, do_commit=False)
+                if parent is not None:
+                        parent = DBFile.get(db, fid=parent)
+                        parent.add_child(f, do_commit=False)
+                ds.add_file(f, do_commit=True)
+        return json.dumps({"fid":f.FID}) + "\n", "text/json"
             
-    def get_file(self, request, relpath, name=None, fid=None, with_metadata="yes", **args):
+    def update_file(self, request, relpath, fid=None, **args):
+        # update file metadata
+        # method: PUT, URI: .../file/namespace:name or
+        #              URI: .../file?fid=fid
+        # request body = metadata in JSON format
+        if (not relpath) == (not fid):
+                return 403, "Either namespace:name or FID must be specified, but not both"
+        namespace = name = None
+        if relpath:
+                namespace, name = relpath.split(":",1)
+        metadata = json.loads(request.body)
+        with self.App.DB.connect() as db:
+                f = DBFile.get(db, namespace=namespace, name=name, fid=fid)
+                f.save_metadata(metadata)
+        return json.dumps({"fid":f.FID}) + "\n", "text/json"
+            
+    def get_file(self, request, relpath, fid=None, with_metadata="yes", **args):
+        if (not relpath) == (not fid):
+                return 403, "Either namespace:name or FID must be specified, but not both"
+        namespace = name = None
+        if relpath:
+                namespace, name = relpath.split(":",1)
         with_metadata = with_metadata == "yes"
-        fid, namespace, name = self.extract_file_spec(fid, name, relpath)
-        if fid and namespace:   
-            return 403, "Either namespace/name or FID must be specified, not both"
-        if fid is None and namespace is None:   
-            return 403, "Either namespace/name or FID must be specified"
         with self.App.DB.connect() as db:
             if fid:
                 f = DBFile.get(db, fid = fid)
@@ -309,8 +323,10 @@ class RootHandler(WPHandler):
         
 class App(WPApp):
 
-    def __init__(self, cfg, *args):
-        WPApp.__init__(self, *args)
+    Version = Version
+
+    def __init__(self, cfg, root, **args):
+        WPApp.__init__(self, root, **args)
         self.Cfg = cfg
         self.DefaultNamespace = cfg.get("default_namespace")
         self.DB = ConnectionPool(postgres=cfg["database"]["connstr"])
@@ -334,7 +350,7 @@ if not config:
     print("Configuration file must be provided either using -c command line option or via METADATA_SERVER_CFG environment variable")
     sys.exit(1)
 config = yaml.load(open(config, "r"), Loader=yaml.SafeLoader)  
-application=App(config, RootHandler)
+application=App(config, RootHandler, enable_static=True, static_location=config.get("static_path", "./static"))
 application.initJinjaEnvironment(
     tempdirs=[config.get("templates", ".")], 
     globals={

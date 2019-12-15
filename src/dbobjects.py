@@ -288,7 +288,9 @@ class DBFile(object):
         data = dict(
             fid = self.FID,
             namespace = self.Namespace,
-            name = self.Name
+            name = self.Name,
+	    children = [c.FID for c in self.children()],
+	    parents = [p.FID for p in self.parents()]
         )
         if with_metadata:
             data["metadata"] = self.metadata()
@@ -303,32 +305,34 @@ class DBFile(object):
     def parents(self, with_metadata = False):
         return DBFileSet(self.DB, [self]).parents(with_metadata)
         
-    def add_child(self, child):
+    def add_child(self, child, do_commit=True):
         child_fid = child if isinstance(child, str) else child.FID
         c = self.DB.cursor()
         c.execute("""
             insert into parent_child(parent_id, child_id)
                 values(%s, %s)        
                 on conflict(parent_id, child_id) do nothing;
-            commit""", (self.FID, child_fid)
+            """, (self.FID, child_fid)
         )
+        if do_commit:	c.execute("commit")
         
-    def remove_child(self, child):
+    def remove_child(self, child, do_commit=True):
         child_fid = child if isinstance(child, str) else child.FID
         c = self.DB.cursor()
         c.execute("""
             delete from parent_child where
                 parent_id = %s and child_id = %s;
-            commit""", (self.FID, child_fid)
+            """, (self.FID, child_fid)
         )
+        if do_commit:	c.execute("commit")
 
-    def add_parent(self, parent):
+    def add_parent(self, parent, do_commit=True):
         parent_fid = parent if isinstance(parent, str) else parent.FID
-        return DBFile(self.DB, fid=parent_fid).add_child(self)
+        return DBFile(self.DB, fid=parent_fid).add_child(self, do_commit=do_commit)
         
-    def remove_parent(self, parent):
+    def remove_parent(self, parent, do_commit=True):
         parent_fid = parent if isinstance(parent, str) else parent.FID
-        return DBFile(self.DB, fid=parent_fid).remove_child(self)
+        return DBFile(self.DB, fid=parent_fid).remove_child(self, do_commit=do_commit)
     
         
         
@@ -418,7 +422,8 @@ class DBDataset(object):
         self.ParentName = parent_name
         
     def save(self, do_commit = True):
-        self.DB.cursor().execute("""
+        c = self.DB.cursor()
+        c.execute("""
             insert into datasets(namespace, name, parent_namespace, parent_name) values(%s, %s, %s, %s)
                 on conflict(namespace, name) 
                     do update set parent_namespace=%s, parent_name=%s
@@ -429,7 +434,8 @@ class DBDataset(object):
             
     def add_file(self, f, do_commit = True):
         assert isinstance(f, DBFile)
-        self.DB.cursor().execute("""
+        c = self.DB.cursor()
+        c.execute("""
             insert into files_datasets(file_id, dataset_namespace, dataset_name) values(%s, %s, %s)
                 on conflict do nothing""",
             (f.FID, self.Namespace, self.Name))
