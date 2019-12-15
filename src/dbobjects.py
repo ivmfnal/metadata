@@ -145,7 +145,7 @@ class DBFile(object):
         
     __repr__ = __str__
 
-    def save(self):
+    def save(self, do_commit = True):
         from psycopg2 import IntegrityError
         c = self.DB.cursor()
         try:
@@ -153,16 +153,15 @@ class DBFile(object):
                 insert 
                     into files(id, namespace, name) 
                     values(%s, %s, %s)
-                    on conflict(id) 
-                        do update set namespace=%s, name=%s;
-                commit""",
+                    on conflict(id) do update set namespace=%s, name=%s""",
                 (self.FID, self.Namespace, self.Name, self.Namespace, self.Name))
+            if do_commit:   c.execute("commit")
         except IntegrityError:
             c.execute("rollback")
             raise AlreadyExistsError("%s:%s" % (self.Namespace, self.Name))
         return self
                 
-    def save_metadata(self, metadata):
+    def save_metadata(self, metadata, do_commit = True):
         attr_tuples = []
         for aname, avalue in metadata.items():
             tup = [None]*8
@@ -201,7 +200,7 @@ class DBFile(object):
                 values(%s, %s, 
                     %s, %s, %s, %s,     %s, %s, %s, %s)""",
                 attr_tuples)
-            c.execute("commit")
+            if do_commit:   c.execute("commit")
             self.Metadata = metadata
         except:
             c.execute("rollback")
@@ -227,6 +226,21 @@ class DBFile(object):
             return f.with_metadata()
         else:
             return f
+            
+    @staticmethod
+    def exists(db, fid = None, namespace = None, name = None):
+        assert (fid is not None) != (namespace is not None or name is not None), "Can not specify both FID and namespace.name"
+        assert (namespace is None) == (name is None)
+        c = db.cursor()
+        if fid is not None:
+            c.execute("""select namespace, name 
+                    from files
+                    where id = %s""", (fid,))
+        else:
+            c.execute("""select id 
+                    from files
+                    where namespace = %s and name=%s""", (namespace, name))
+        return c.fetchone() != None
         
     def fetch_metadata(self):
         meta = {}
@@ -363,7 +377,7 @@ class MetaExpressionDNF(object):
                 elif isinstance(aval, str):     cname = "string_array"
                 else:
                         raise ValueError("Unrecognized value type %s for attribute %s" % (type(aval), aname))
-                parts.append(f"a{i}.name='{aname}' and '{aval}' in a{i}.{cname}")
+                parts.append(f"a{i}.name='{aname}' and '{aval}' = any(a{i}.{cname})")
             else:
                 #print("sql_and: aval:", type(aval), repr(aval))
                 if isinstance(aval, bool):    cname = "bool_value"
@@ -385,11 +399,12 @@ class MetaExpressionDNF(object):
                 """ % (
                 " ".join(joins), dataset_namespace, dataset_name, " and ".join(parts))
                 
-    def file_ids_sql(self, dataset_namespace = None, dataset_name = None):
+    def file_ids_sql(self, dataset_namespace = None, dataset_name = None, limit = None):
         dataset_namespace = dataset_namespace or "<dataset_namespace>"      # can be used for debugging
         dataset_name = dataset_name or "<dataset_name>"                     # can be used for debugging
         ands = [self.sql_and(and_term, dataset_namespace, dataset_name) for and_term in self.Expression]
-        return "select distinct fid from (%s) as ands" % (" union ".join(ands))
+        limit = "" if limit is None else "limit {limit}"
+        return f"select distinct fid from (%s) as ands {limit}" % (" union ".join(ands))
         
 class DBDataset(object):
 
@@ -402,22 +417,23 @@ class DBDataset(object):
         self.ParentNamespace = parent_namespace
         self.ParentName = parent_name
         
-    def save(self):
+    def save(self, do_commit = True):
         self.DB.cursor().execute("""
             insert into datasets(namespace, name, parent_namespace, parent_name) values(%s, %s, %s, %s)
                 on conflict(namespace, name) 
-                    do update set parent_namespace=%s, parent_name=%s;
-            commit""",
+                    do update set parent_namespace=%s, parent_name=%s
+            """,
             (self.Namespace, self.Name, self.ParentNamespace, self.ParentName, self.ParentNamespace, self.ParentName))
+        if do_commit:   c.execute("commit")
         return self
             
-    def add_file(self, f):
+    def add_file(self, f, do_commit = True):
         assert isinstance(f, DBFile)
         self.DB.cursor().execute("""
             insert into files_datasets(file_id, dataset_namespace, dataset_name) values(%s, %s, %s)
-                on conflict do nothing;
-            commit""",
+                on conflict do nothing""",
             (f.FID, self.Namespace, self.Name))
+        if do_commit:   c.execute("commit")
         return self
         
     @staticmethod
@@ -451,13 +467,14 @@ class DBDataset(object):
                 namespace, name, parent_namespace, parent_name in fetch_generator(c))
 
 
-    def list_files(self, recursive=False, with_metadata = False, condition=None, relationship="self"):
+    def list_files(self, recursive=False, with_metadata = False, condition=None, relationship="self",
+                limit=None):
         # relationship is ignored for now
         # condition is the filter condition in DNF nested list format
         c = self.DB.cursor()
         
         if condition:
-            file_ids_sql = MetaExpressionDNF(condition).file_ids_sql(self.Namespace, self.Name)
+            file_ids_sql = MetaExpressionDNF(condition).file_ids_sql(self.Namespace, self.Name, limit)
         if with_metadata:
                 if condition:
                         sql = f"""select files.id, files.namespace, files.name, 
@@ -471,18 +488,20 @@ class DBDataset(object):
                                         order by files.id"""
                         c.execute(sql)
                 else:
-                        c.execute("""select f.id, f.namespace, f.name, 
+                        limit = "" if limit is None else f"limit {limit}"
+                        sql = f"""select f.id, f.namespace, f.name, 
                                                 a.name,
                                                 a.int_array, a.float_array, a.string_array, a.bool_array,
                                                 a.int_value, a.float_value, a.string_value, a.bool_value
-                                        from files f left outer join file_attributes a on (a.file_id = f.id), 
-                                            files_datasets fd
-                                        where 
-                                                f.id = fd.file_id
-                                                and fd.dataset_namespace=%s and fd.dataset_name=%s
+                                        from files f left outer join file_attributes a on (a.file_id = f.id) 
+                                        where f.id in (
+                                            select file_id from files_datasets fd
+                                                where fd.dataset_namespace=%s and fd.dataset_name=%s
+                                                {limit}
+                                        )
                                         order by f.id
-                                        """,
-                                (self.Namespace, self.Name))
+                                        """
+                        c.execute(sql, (self.Namespace, self.Name))
                 return DBFileSet.from_metadata_tuples(self.DB, fetch_generator(c))
         else:
                 if condition:
@@ -494,10 +513,12 @@ class DBDataset(object):
                                         """,
                                 (self.Namespace, self.Name))
                 else:
-                        c.execute("""select f.id, f.namespace, f.name 
+                        limit = "" if limit is None else f"limit {limit}"
+                        c.execute(f"""select f.id, f.namespace, f.name 
                                         from files f, files_datasets fd
                                         where f.id = fd.file_id
                                                 and fd.dataset_namespace=%s and fd.dataset_name=%s
+                                        {limit}
                                         """,
                                 (self.Namespace, self.Name))
                 return DBFileSet.from_shallow(self.DB, fetch_generator(c))

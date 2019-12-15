@@ -4,57 +4,102 @@
 
 {% block content %}
 
-<table class=placement width="100%">
-    <tr><td><h3>Query</h3></td>
-        <td><form method="post" action="">
-                <table class="placement">
-                    <tr>
-                        <td width=10px>Default namespace:</td><td width="100%"><input type="text" name="namespace"
-                                value="{{namespace or 'test'}}"/></td>
-                    </tr>
-                    <tr>
-                        <td colspan=2><textarea name="query" cols=80 rows=10>{{query}}</textarea></td>
-                    </tr>
-                    <tr>
-                        <td><input type="submit" value="run"/></td>
-                    </tr>
-                </table>
-            </form>
-        </td>
-    </tr>
+<form method="post" action="">
+    <table class="form">
+		<tr>
+			<th>Load:</th><td><select name="query_to_load">
+				{% for q in named_queries %}
+					<option value="{{q.Namespace}}:{{q.Name}}">{{q.Namespace}}:{{q.Name}}</option>
+				{% endfor %}
+				</select>&nbsp;&nbsp;<input type="submit" name="action" value="load"/></td>
+            <td></td>
+		</tr>
+        <tr><td colspan=3>&nbsp;</td></tr>
+        <tr>
+            <th>Default namespace:</th><td><input type="text" name="namespace"
+                    value="{{namespace or 'test'}}"/></td>
+            <td></td>
+        </tr>
+        <tr>
+            <th>Query:</th><td colspan=3><textarea name="query" cols=80 rows=10>{{query}}</textarea></td>
+            <td></td>
+
+        </tr>
+        {#
+		<tr>
+			<th>Save as:</th><td>namespace:&nbsp<input type="text" name="namespace" value="{{namespace}}"/>&nbsp;&nbsp
+            {{- '' -}}
+            name:&nbsp<input type="text" name="name"/>&nbsp;&nbsp
+            {{- '' -}}
+            <input type="submit" name="action" value="save"/></td>
+            <td></td>
+		</tr>
+        #}
+        <tr><td colspan=3>&nbsp;</td></tr>
+        <tr>
+            <th>Run:</th>
+            <td><input type="checkbox" name="with_meta" 
+                {% if with_meta %}checked="checked"{% endif %}
+            >&nbsp;include metadata <input type="submit" name="action" value="run"/></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+        </tr>
+    </table>
+</form>
+
+
     
-    {% if show_files %}
-    <tr><td colspan=2><hr/></td></tr>
-    <tr>
-        <td>
-            <p><h3>Results</h3></p>
-            <p>{{files|length}} files</p>
-            <p>Runtime:{{"%.3f"|format(runtime)}} seconds</p>
-            <p><a href="query?format=json&query={{url_query}}">json</a></p>
-        </td>
-        <td>
-            <table class="data">
-            <!--
+{% if show_files %}
+    <div class=headline>Query results</div>
+    <p>Runtime: {{"%.3f"|format(runtime)}} seconds<br/>
+        Files: {{files|length}} (results in GUI are always limited to 1000 files)<br/>
+        JSON:&nbsp;<a href="{{GLOBAL_AppTopPath}}/data/query?with_meta=ye&query={{url_query}}">with</a> 
+        <a href="{{GLOBAL_AppTopPath}}/data/query?with_meta=no&query={{url_query}}">without</a> metadata
+    </p>
+
+    {% if meta_stats %}
+        <h3>Metadata values distribution</h3>
+        <table class="data">
             <tr>
-                <th>File name</th><th>Meatadata</th>
+                <th>Attribute</th><th>Value</th><th>Count</th>
             </tr>
-            -->
-            {% for f in files|sort(attribute="Name") %}
-                <tr>
-                    <td><a href="./show_file?fid={{f.FID}}">{{f.Namespace}}:{{f.Name}}</a></td>
-                    {% for k, v in f.Metadata.items()|sort %}
-                        <td>{{k}}={{v}}</td>
-                    {% endfor %}
-                </tr>
+            {% for name, counts in meta_stats %}
+                {% for v, c in counts %}
+                    <tr>
+                        {% if loop.first %}<td rowspan="{{counts|length}}">{{name}}</td>{% endif %}
+                        <td>{{v}}</td><td>{{c}}</td>
+                    </tr>
+                {% endfor %}
             {% endfor %}
-            </table>
-        </td>
-    </tr>
+        </table>
     {% endif %}
+
+    <h3>Files</h3>
+    <table class="data">
+    <!--
+    <tr>
+        <th>File name</th><th>Meatadata</th>
+    </tr>
+    -->
+    {% for f in files|sort(attribute="Name") %}
+        <tr>
+            <td><a class="left" href="./show_file?fid={{f.FID}}">{{f.Namespace}}:{{f.Name}}</a></td>
+            {% if f.Metadata %}
+                {% for k, v in f.Metadata.items()|sort %}
+                    <td>{{k}}={{v}}</td>
+                {% endfor %}
+            {% endif %}
+        </tr>
+    {% endfor %}
+    </table>
+{% endif %}
 
     
     
-</table>
 
         
 

@@ -51,7 +51,7 @@ filter_params:    ( constant ("," constant)* )?                    -> filter_par
 
 dataset_exp: "dataset" namespace_name ("where" meta_exp)?           -> dataset
 
-namespace_name: (CNAME ":")? CNAME
+namespace_name: (FNAME ":")? FNAME
 
 ?meta_exp:   meta_or                                -> f_
 
@@ -59,8 +59,8 @@ meta_or:    meta_and ( "or" meta_and )*
 
 meta_and:   term_meta ( "and" term_meta )*
 
-term_meta:  CNAME CMPOP constant                    -> cmp_op
-    | constant "in" CNAME                           -> in_op
+term_meta:  ANAME CMPOP constant                    -> cmp_op
+    | constant "in"i ANAME                          -> in_op
     | "(" meta_exp ")"                              -> f_
     | "!" term_meta                                 -> meta_not
     
@@ -69,36 +69,43 @@ constant : SIGNED_FLOAT                             -> float_constant
     | SIGNED_INT                                    -> int_constant
     | BOOL                                          -> bool_constant
 
+ANAME: WORD ("." WORD)*
+
+FNAME: LETTER ("_"|"-"|"."|LETTER|DIGIT)*
+
+WORD: LETTER ("_"|LETTER|DIGIT)*
+
 CMPOP: ">" | "<" | ">=" | "<=" | "==" | "=" | "!="
 
-BOOL: "true" | "false"                              
-
+BOOL: "true"i | "false"i                         
 
 %import common.CNAME
 %import common.SIGNED_INT
 %import common.SIGNED_FLOAT
 %import common.ESCAPED_STRING       -> STRING
 %import common.WS
+%import common.LETTER
+%import common.DIGIT
 %ignore WS
 """
 
 
 class Node(object):
-    def __init__(self, typ, children=[], value=None):
+    def __init__(self, typ, children=[], meta=None):
         self.T = typ
-        self.V = value
+        self.M = meta
         self.C = children[:]
 
     def __str__(self):
-        return "<Node %s v=%s c:%d>" % (self.T, self.V, len(self.C))
+        return "<Node %s meta=%s c:%d>" % (self.T, self.M, len(self.C))
 
     __repr__ = __str__
 
     def __add__(self, lst):
-        return Node(self.T, self.C + lst, self.V)
+        return Node(self.T, self.C + lst, self.M)
 
     def as_list(self):
-        out = [self.T, self.V]
+        out = [self.T, self.M]
         for c in self.C:
                 if isinstance(c, Node):
                         out.append(c.as_list())
@@ -108,7 +115,7 @@ class Node(object):
         
     def _pretty(self, indent=0):
         out = []
-        out.append("%s%s %s" % ("  "*indent, self.T, '' if self.V is None else repr(self.V)))
+        out.append("%s%s %s" % ("  "*indent, self.T, '' if self.M is None else repr(self.M)))
         for c in self.C:
             if isinstance(c, Node):
                 out += c._pretty(indent+2)
@@ -120,7 +127,7 @@ class Node(object):
         return "\n".join(self._pretty())
         
     def jsonable(self):
-        d = dict(T=self.T, V=self.V, C=[c.jsonable() if isinstance(c, Node) else c
+        d = dict(T=self.T, M=self.M, C=[c.jsonable() if isinstance(c, Node) else c
                         for c in self.C]
         )
         d["///class///"] = "node"
@@ -134,7 +141,7 @@ class Node(object):
         if isinstance(data, dict) and data.get("///class///") == "node":
             return Node(data["T"],
                 children = [Node.from_jsonable(c) for c in data.get("C", [])],
-                value = data.get("V")
+                meta = data.get("M")
             )
         else:
             return data
@@ -143,6 +150,32 @@ class Node(object):
     def from_json(text):
         return Node.from_jsonable(json.loads(text))
 
+def pass_node(method):
+    def decorated(self, *params, **args):
+        return method(self, *params, **args)
+    decorated.__pass_node__ = True
+    return decorated
+
+class Visitor(object):
+
+    def visit(self, node, context):
+        if not isinstance(node, Node):
+            return
+        node_type, children = node.T, node.C
+        
+        if hasattr(self, node_type):
+            method = getattr(self, node_type)
+            visit_children = method(node, context)
+        else:
+            visit_children = self.__default(node, context)
+
+        if visit_children:
+            for c in children:
+                self.visit(c, context)
+        
+    def __default(self, node, context):
+        return True
+        
 class Ascender(object):
 
     def __init__(self):
@@ -162,16 +195,16 @@ class Ascender(object):
         #print("walk: children->", children)
         if hasattr(self, node_type):
             method = getattr(self, node_type)
-            if hasattr(method, "pass_node") and getattr(method, "pass_node"):
+            if hasattr(method, "__pass_node__") and getattr(method, "__pass_node__"):
                 out = method(node)
             else:
-                out = method(children, node.V)
+                out = method(children, node.M)
         else:
             out = self.__default(node, children)
         return out
         
     def __default(self, node, children):
-        return Node(node.T, children=children, value=node.V)
+        return Node(node.T, children=children, meta=node.M)
 
 class _Converter(Transformer):
     
@@ -191,7 +224,7 @@ class _Converter(Transformer):
 
     def bool_constant(self, args):
         #print("bool_constant:", args, args[0].value)
-        return args[0].value == "true"
+        return args[0].value.lower() == "true"
         
     def string_constant(self, args):
         s = args[0].value
@@ -201,7 +234,7 @@ class _Converter(Transformer):
         
     def named_query(self, args):
         assert len(args) == 1
-        return Node("named_query", value = args[0].V)       # value = (namespace, name) - tuple
+        return Node("named_query", meta = args[0].M)       # value = (namespace, name) - tuple
         
     def exp_list(self, args):
         return args
@@ -217,9 +250,9 @@ class _Converter(Transformer):
         if isinstance(node, Node):
             #print("_apply_params:", node)
             if node.T == "namespace_name":
-                assert len(node.V) == 2
-                if node.V[0] is None and "namespace" in params:
-                    node.V[0] = params["namespace"]
+                assert len(node.M) == 2
+                if node.M[0] is None and "namespace" in params:
+                    node.M[0] = params["namespace"]
                     #print("_apply_params: applied namespace:", params["namespace"])
             else:
                 for n in node.C:
@@ -292,9 +325,9 @@ class _Converter(Transformer):
     def namespace_name(self, args):
         assert len(args) in (1,2)
         if len(args) == 1:
-            return Node("namespace_name", value=[None, args[0].value])      # no namespace
+            return Node("namespace_name", meta=[None, args[0].value])      # no namespace
         else:
-            return Node("namespace_name", value=[args[0].value, args[1].value])
+            return Node("namespace_name", meta=[args[0].value, args[1].value])
 
     def dataset(self, args):
         assert len(args) in (1,2)
@@ -305,7 +338,7 @@ class _Converter(Transformer):
         
     def filter(self, args):
         assert len(args) == 3
-        return Node("filter", args[2], value = (args[0].value, args[1]))
+        return Node("filter", args[2], meta = (args[0].value, args[1]))
         
     #def metafilter_exp(self, args):
     #    assert len(args) == 2
@@ -388,9 +421,32 @@ class _Assembler(Ascender):
         namespace, name = query_name
         namespace = namespace or self.DefaultNamespace
         Query.from_db(self.DB, namespace, name).parse()
+
+class _MetaFlagPusher(Visitor):
+
+    def filter(self, node, keep_meta):
+        for c in node.C:
+            self.visit(c, True)
+        return False
+        
+    def meta_filter(self, node, keep_meta):
+        assert len(node.C) == 2
+        self.visit(node.C[0], True)
+        return False
+
+    def dataset(self, node, keep_meta):
+        if isinstance(node.M, dict):
+            node.M["keep_meta"] = keep_meta
+        elif node.M is None:
+            node.M = {"keep_meta":keep_meta}
+        else:
+            raise ValueError("Unknown type of pre-existing metadata for dataset node: %s" % (node.pretty(),))
+        return False
+        
         
 class _Optimizer(Ascender):
-    
+
+    @pass_node
     def parents_of(self, node):
         children = node.C
         assert len(children) == 1
@@ -400,8 +456,7 @@ class _Optimizer(Ascender):
         else:
             return node 
 
-    parents_of.pass_node = True
-            
+    @pass_node
     def children_of(self, node):
         children = node.C
         assert len(children) == 1
@@ -412,9 +467,7 @@ class _Optimizer(Ascender):
         else:
             return node
 
-    children_of.pass_node = True
-
-    def meta_filter(self, children, value):
+    def meta_filter(self, children, meta):
         assert len(children) == 2
         query, meta_exp = children
         return self.apply_meta_exp(query, meta_exp)
@@ -457,7 +510,7 @@ class _MetaExpOptmizer(Ascender):
         #print("_flatten_bool: output:", new_nodes)
         return new_nodes
         
-    def meta_or(self, children, value):
+    def meta_or(self, children, meta):
         children = [x if x.T == "meta_and" else Node("meta_and", [x]) for x in self._flatten_bool("meta_or", children)]
         out = Node("meta_or", children)
         return out
@@ -476,7 +529,7 @@ class _MetaExpOptmizer(Ascender):
                 for p in self._generate_and_terms(path + [node], rest):
                     yield p
 
-    def meta_and(self, children, value):
+    def meta_and(self, children, meta):
         children = self._flatten_bool("meta_and", children)
         or_present = False
         for c in children:
@@ -514,7 +567,7 @@ class _MetaExpOptmizer(Ascender):
             return or_exp
             
             
-    def dataset(self, children, value):
+    def dataset(self, children, meta):
         assert len(children) == 2
         ds, exp = children
         return Node("dataset", [ds, self._make_DNF(exp)])
@@ -526,55 +579,56 @@ class _Evaluator(Ascender):
         self.Filters = filters
         self.DB = db
 
-    def parents_of(self, args, value):
+    def parents_of(self, args, meta):
         assert len(args) == 1
         arg = args[0]
         if False and arg.T == "dataset":      # not implemented yet
-            return self.dataset(arg.C, arg.V, "parents")
+            return self.dataset(arg.C, arg.M, "parents")
         else:
             return arg.parents(with_metadata=True)
 
-    def children_of(self, args, value):
+    def children_of(self, args, meta):
         assert len(args) == 1
         arg = args[0]
         #print("_Evaluator.children_of: arg:", arg)
         if False and arg.T == "dataset":      # not implemented yet
-            return self.dataset(arg.C, arg.V, "children")
+            return self.dataset(arg.C, arg.M, "children")
         else:
             #print("children_of: calling children()...")
             return arg.children(with_metadata=True)
 
-    def dataset(self, args, value, provenance=None):
+    def dataset(self, args, meta, provenance=None):
         assert len(args) == 2
         dataset_name, meta_exp = args
-        namespace, name = dataset_name.V
+        namespace, name = dataset_name.M
         dataset = DBDataset.get(self.DB, namespace, name)
+        keep_meta = meta["keep_meta"]
         files = dataset.list_files(condition=meta_exp, 
             relationship="self" if provenance is None else provenance, 
-            with_metadata=True)
+            with_metadata=keep_meta)
         #print ("Evaluator.dataset: files:", files)
         assert isinstance(files, DBFileSet)
         return files
         
-    def union(self, args, value):
+    def union(self, args, meta):
         return DBFileSet.union(self.DB, args)
         
-    def join(self, args, value):
+    def join(self, args, meta):
         return DBFileSet.join(self.DB, args)
         
-    def minus(self, expressions, value):
+    def minus(self, expressions, meta):
         assert len(expressions) == 2
         left, right = expressions
         return left - right
 
-    def filter(self, args, value):
-        name, params = value
+    def filter(self, args, meta):
+        name, params = meta
         inputs = args
         #print("Evaluator.filter: inputs:", inputs)
         filter_function = self.Filters[name]
         return DBFileSet(self.DB, filter_function(inputs, params))
         
-    def meta_filter(self, args, value):
+    def meta_filter(self, args, meta):
         assert len(args) == 2
         files, meta_exp = args
         return DBFileSet(self.DB, (f for f in files if self.evaluate_meta_expression(f, meta_exp)))
@@ -700,17 +754,35 @@ class Query(object):
         #print("Query.optimize: entry")
         assert self.Assembled is not None
         #print("optimize: assembled:", self.Assembled.pretty())
-        meta_optimized = _MetaExpOptmizer().walk(self.Assembled)
-        self.Optimized = _Optimizer().walk(meta_optimized)
+        optimized = _MetaExpOptmizer().walk(self.Assembled)
+        optimized = _Optimizer().walk(optimized)
+        self.Optimized = optimized
+        
         #print("Query.optimize: optimized:", self.Optimized)
         return self.Optimized
 
-    def run(self, db, filters={}):
+    def _limit_results(self, gen, limit):
+        for x in gen:
+            if limit > 0:
+                yield x
+            else:
+                break
+            limit -= 1
+
+    def run(self, db, filters={}, limit=None, with_meta=True):
+        # TODO: take with_meta into account
         self.assemble(db, self.DefaultNamespace)
         #print("Query.run: assemled:", self.Assembled.pretty())
         optimized = self.optimize()
-        print("Query.run: optimied:", optimized.pretty())
-        return _Evaluator(db, filters).walk(optimized)
+        #print("Query.run: optimied:", optimized.pretty())
+        #print("Query.run: with_meta=", with_meta)
+        _MetaFlagPusher().visit(optimized, with_meta)
+        #print("Query.run: flag_applied:\n%s" % (optimized.pretty(),))
+        out = _Evaluator(db, filters).walk(optimized)
+        if limit is None:
+            return out
+        else:
+            return self._limit_results(out, limit)
         
     @property
     def code(self):
