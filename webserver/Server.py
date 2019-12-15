@@ -1,5 +1,5 @@
 from webpie import WPApp, WPHandler
-import psycopg2, json, time
+import psycopg2, json, time, secrets
 from dbobjects import DBFile, DBDataset, DBFileSet, DBNamedQuery
 from wsdbtools import ConnectionPool
 from urllib.parse import quote_plus, unquote_plus
@@ -240,11 +240,34 @@ class DataHandler(WPHandler):
         data = ("%s:%s" % (q.Namespace, q.Name) for q in queries)
         return self.json_chunks(data), "text/json"
             
+class AuthHandler(WPHandler):
+
+    TokenExpiration = 24*3600*3600
+    
+    def auth(self, request, relpath, **args):
+        from rfc2617 import digest_server
+        # give them cookie with the signed token
+        
+        ok, data = digest_server("metadata", request.environ, self.App.get_password)
+        if ok:
+            user = data
+            token = SignedToken({"user": user}, expiration=self.TokenExpiration).encode(self.App.TokenSecret)
+            resp = Response(token, content_type="text/plain")
+            resp.set_cookie("auth_token", token, max_age = int(self.TokenExpiration))
+            return resp
+        elif data:
+            resp = Response("Authorization required", status=401, headers={
+                'WWW-Authenticate': header
+            })
+        else:
+            return 403, "Authentication failed"
+
 class RootHandler(WPHandler):
     
     def __init__(self, *params, **args):
         self.data = DataHandler(*params, **args)
         self.gui = GUIHandler(*params, **args)
+        self.auth = AuthHandler(*params, **args)
         
 class App(WPApp):
 
@@ -258,6 +281,16 @@ class App(WPApp):
                                 globals(), locals(), [], 0)
             for n in cfg["filters"].get("names", []):
                 self.Filters[n] = getattr(filters_mod, n)
+                
+        #
+        # Authentication/authtorization
+        #        
+        self.Users = cfg["users"]       #   { username: { "passwrord":password }, ...}
+        self.TokenSecret = secrets.token_bytes(128)     # used to sign tokens
+        
+    def get_password(self, realm, username):
+        # realm is ignored for now
+        return self.Users.get(username).get("password")
 
     def filters(self):
         return self.Filters
