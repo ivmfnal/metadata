@@ -9,35 +9,32 @@ import pprint
 CMP_OPS = [">" , "<" , ">=" , "<=" , "==" , "=" , "!="]
 
 MQL_Grammar = """
-exp:  add_exp                                   -> f_
+exp:  add_exp                                   -> s_
 
 add_exp : add_exp "+" mul_exp                   -> add
         | add_exp "-" mul_exp                   -> subtract
-        | mul_exp                               -> f_
+        | mul_exp                               -> s_
     
 mul_exp : mul_exp "*" term_with_params          -> mult
-        | term_with_params                      -> f_
+        | term_with_params                      -> s_
     
-term_with_params    : with_clause term2         
-                    | term2                     -> f_
+term_with_params    : with_clause term         
+                    | term                      -> s_
         
 with_clause :  "with" param_def ("," param_def)*
 
 param_def: CNAME "=" constant
 
-term2   : term                                      -> f_
-        | filterable_term "where" meta_exp          -> meta_filter
+term    : filterable_term ("where" meta_exp)    -> meta_filter
 
-?term   : dataset_exp                               -> f_
-        | filterable_term                           -> f_
-    
-?filterable_term: union                                    -> f_
-    | join                                      -> f_
+filterable_term: union                          -> s_
+    | join                                      -> s_
     | "filter" CNAME "(" filter_params ")" "(" exp_list ")"         -> filter
     | "parents" "(" exp ")"                     -> parents_of
     | "children" "(" exp ")"                    -> children_of
     | "query" namespace_name                    -> named_query
-    | "(" exp ")"                               -> f_
+    | "dataset" dataset_exp                     -> dataset
+    | "(" exp ")"                               -> s_
 
 union: "union" "(" exp_list ")"
     | "[" exp_list "]"
@@ -45,23 +42,36 @@ union: "union" "(" exp_list ")"
 join: "join" "(" exp_list ")"
     | "{" exp_list "}"
 
-exp_list: exp ("," exp)*                             
+exp_list: exp ("," exp)*                        -> m_                             
 
-filter_params:    ( constant ("," constant)* )?                    -> filter_params
+filter_params:    ( constant ("," constant)* )?                     -> filter_params
 
-dataset_exp: "dataset" namespace_name ("where" meta_exp)?           -> dataset
+dataset_exp:  dataset_exp1                                   -> s_
+    |   dataset_exp1 "with" "children"                       -> datasets_query_exp_with_children
+    |   dataset_exp1 "with" "children" "recurisively"        -> datasets_query_exp_with_children_recursively
+
+dataset_exp1:    dataset_exp_term ( "having" meta_exp )?      -> dataset_query_filter
+    |   dataset_union                                        -> s_
+    
+dataset_union:  "union" ( dataset_exp_list )    
+    |   "[" dataset_exp_list "]"        
+    
+dataset_exp_list: datasets_exp ("," datasets_exp)*          -> m_  
+    
+dataset_exp_term: namespace_name                    -> s_
+    |   "matching" STRING                           -> dataset_query_match
 
 namespace_name: (FNAME ":")? FNAME
 
-?meta_exp:   meta_or                                -> f_
+?meta_exp:   meta_or                                -> s_
 
 meta_or:    meta_and ( "or" meta_and )*
 
 meta_and:   term_meta ( "and" term_meta )*
 
 term_meta:  ANAME CMPOP constant                    -> cmp_op
-    | constant "in"i ANAME                          -> in_op
-    | "(" meta_exp ")"                              -> f_
+    | constant "in" ANAME                          -> in_op
+    | "(" meta_exp ")"                              -> s_
     | "!" term_meta                                 -> meta_not
     
 constant : SIGNED_FLOAT                             -> float_constant                      
@@ -115,7 +125,7 @@ class Node(object):
         
     def _pretty(self, indent=0):
         out = []
-        out.append("%s%s %s" % ("  "*indent, self.T, '' if self.M is None else self.M))
+        out.append("%s%s %s" % ("  "*indent, self.T, '' if self.M is None else repr(self.M)))
         for c in self.C:
             if isinstance(c, Node):
                 out += c._pretty(indent+2)
@@ -212,9 +222,12 @@ class _Converter(Transformer):
         tree = self.transform(tree)
         return self._apply_params({"namespace":default_namespace}, tree)
 
-    def f_(self, args):
+    def s_(self, args):
         assert len(args) == 1
         return args[0]
+        
+    def m_(self, args):
+        return args
     
     def int_constant(self, args):
         return int(args[0].value)
@@ -236,9 +249,6 @@ class _Converter(Transformer):
         assert len(args) == 1
         return Node("named_query", meta = args[0].M)       # value = (namespace, name) - tuple
         
-    def exp_list(self, args):
-        return args
-
     def __default__(self, data, children, meta):
         #print("__default__:", data, children)
         return Node(data, children)
@@ -412,15 +422,15 @@ class _Assembler(Ascender):
         self.DefaultNamespace = default_namespace
         
     def walk(self, inp):
-        print("Assembler.walk(): in:", inp.pretty() if isinstance(inp, Node) else repr(inp))
+        #print("Assembler.walk(): in:", inp.pretty() if isinstance(inp, Node) else repr(inp))
         out = Ascender.walk(self, inp)
-        print("Assembler.walk(): out:", out.pretty() if isinstance(out, Node) else repr(out))
+        #print("Assembler.walk(): out:", out.pretty() if isinstance(out, Node) else repr(out))
         return out
         
     def named_query(self, children, query_name):
         namespace, name = query_name
         namespace = namespace or self.DefaultNamespace
-        return Query.from_db(self.DB, namespace, name).parse()
+        Query.from_db(self.DB, namespace, name).parse()
 
 class _MetaFlagPusher(Visitor):
 
@@ -572,19 +582,6 @@ class _MetaExpOptmizer(Ascender):
         ds, exp = children
         return Node("dataset", [ds, self._make_DNF(exp)])
             
-class _SQLGenerator(Ascender):
-
-    def dataset(self, args, meta):
-        assert len(args) == 2
-        dataset_name, meta_exp = args
-        namespace, name = dataset_name.M
-        keep_meta = True
-        return Node("SQL", meta=DBDataset._list_files_sql(
-                        namespace, name,
-                        False, keep_meta, meta_exp,
-                        "self", None))
-            
-
 class _Evaluator(Ascender):
 
     def __init__(self, db, filters):
@@ -753,9 +750,9 @@ class Query(object):
     def assemble(self, db, default_namespace = None):
         if self.Assembled is None:
             parsed = self.parse()
-            print("Query.assemble(): parsed:", parsed.pretty())
+            #print("Query.assemble(): parsed:", parsed.pretty())
             self.Assembled = _Assembler(db, default_namespace).walk(parsed)
-            print("Query.assemble: self.Assembled:", self.Assembled.pretty())
+            #print("Query.assemble: self.Assembled:", self.Assembled.pretty())
         return self.Assembled
         
     def skip_assembly(self):
@@ -767,15 +764,12 @@ class Query(object):
         #print("Query.optimize: entry")
         assert self.Assembled is not None
         #print("optimize: assembled:", self.Assembled.pretty())
-        optimized = _Optimizer().walk(self.Assembled)
-        optimized = _MetaExpOptmizer().walk(optimized)
+        optimized = _MetaExpOptmizer().walk(self.Assembled)
+        optimized = _Optimizer().walk(optimized)
         self.Optimized = optimized
         
         #print("Query.optimize: optimized:", self.Optimized)
         return self.Optimized
-
-    def generate_sql(self):
-        return _SQLGenerator().walk(self.optimize())
 
     def _limit_results(self, gen, limit):
         for x in gen:

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block headline %}Metadata Query{% endblock %}
+
+{% block content %}
+
+<form method="post" action="">
+    <table class="form">
+        <tr>
+            <th>Default namespace:</th><td><input type="text" name="namespace"
+                    value="{{namespace or 'test'}}"/></td>
+            <td></td>
+        </tr>
+        <tr>
+            <th>Query:</th><td colspan=3><textarea name="query" cols=80 rows=10>{{query_text}}</textarea></td>
+            <td></td>
+        </tr>
+        <tr>
+            <th></th>
+            <td><input type="submit" name="action" value="run"/></td>
+        </tr>
+    </table>
+</form>
+
+
+    
+{% if show_results %}
+            <h3>Parsed</h3>
+                <pre class=code>{{parsed.pretty()}}</pre>
+            <h3>Assembled</h3>
+                <pre class=code>{{assembled.pretty()}}</pre>
+            <h3>Canonic DNF</h3>
+                <pre class=code>{{optimized.pretty()}}</pre>
+            <h3>With SQL</h3>
+                <pre class=code>{{with_sql.pretty()}}</pre>
+{% endif %}
+
+    
+    
+
+        
+
+{% endblock %}

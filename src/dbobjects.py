@@ -289,8 +289,8 @@ class DBFile(object):
             fid = self.FID,
             namespace = self.Namespace,
             name = self.Name,
-	    children = [c.FID for c in self.children()],
-	    parents = [p.FID for p in self.parents()]
+            children = [c.FID for c in self.children()],
+            parents = [p.FID for p in self.parents()]
         )
         if with_metadata:
             data["metadata"] = self.metadata()
@@ -314,7 +314,7 @@ class DBFile(object):
                 on conflict(parent_id, child_id) do nothing;
             """, (self.FID, child_fid)
         )
-        if do_commit:	c.execute("commit")
+        if do_commit:   c.execute("commit")
         
     def remove_child(self, child, do_commit=True):
         child_fid = child if isinstance(child, str) else child.FID
@@ -324,7 +324,7 @@ class DBFile(object):
                 parent_id = %s and child_id = %s;
             """, (self.FID, child_fid)
         )
-        if do_commit:	c.execute("commit")
+        if do_commit:   c.execute("commit")
 
     def add_parent(self, parent, do_commit=True):
         parent_fid = parent if isinstance(parent, str) else parent.FID
@@ -356,6 +356,7 @@ class MetaExpressionDNF(object):
     
     @staticmethod
     def validate_exp(exp):
+        print("validate_exp: exp:", exp)
         for and_exp in exp:
             if not isinstance(and_exp, list):
                 raise ValueError("The 'and' expression is not a list: %s" % (repr(and_exp),))
@@ -472,15 +473,14 @@ class DBDataset(object):
         return (DBDataset(db, namespace, name, parent_namespace, parent_name) for
                 namespace, name, parent_namespace, parent_name in fetch_generator(c))
 
-
-    def list_files(self, recursive=False, with_metadata = False, condition=None, relationship="self",
-                limit=None):
+    @staticmethod
+    def _list_files_sql(namespace, name, recursive, with_metadata, condition, relationship, limit):
+        print("_list_files_sql: condition:", condition)
         # relationship is ignored for now
         # condition is the filter condition in DNF nested list format
-        c = self.DB.cursor()
-        
+
         if condition:
-            file_ids_sql = MetaExpressionDNF(condition).file_ids_sql(self.Namespace, self.Name, limit)
+            file_ids_sql = MetaExpressionDNF(condition).file_ids_sql(namespace, name, limit)
         if with_metadata:
                 if condition:
                         sql = f"""select files.id, files.namespace, files.name, 
@@ -492,7 +492,6 @@ class DBDataset(object):
                                             {file_ids_sql}
                                         )
                                         order by files.id"""
-                        c.execute(sql)
                 else:
                         limit = "" if limit is None else f"limit {limit}"
                         sql = f"""select f.id, f.namespace, f.name, 
@@ -502,31 +501,39 @@ class DBDataset(object):
                                         from files f left outer join file_attributes a on (a.file_id = f.id) 
                                         where f.id in (
                                             select file_id from files_datasets fd
-                                                where fd.dataset_namespace=%s and fd.dataset_name=%s
+                                                where fd.dataset_namespace='{namespace}' and fd.dataset_name='{name}'
                                                 {limit}
                                         )
                                         order by f.id
                                         """
-                        c.execute(sql, (self.Namespace, self.Name))
-                return DBFileSet.from_metadata_tuples(self.DB, fetch_generator(c))
         else:
                 if condition:
-                        c.execute(f"""select files.id, files.namespace, files.name 
+                        sql = f"""select files.id, files.namespace, files.name 
                                         from files
                                         where files.id in (
                                             {file_ids_sql}
                                         )
-                                        """,
-                                (self.Namespace, self.Name))
+                                        """
                 else:
                         limit = "" if limit is None else f"limit {limit}"
-                        c.execute(f"""select f.id, f.namespace, f.name 
+                        sql = f"""select f.id, f.namespace, f.name 
                                         from files f, files_datasets fd
                                         where f.id = fd.file_id
-                                                and fd.dataset_namespace=%s and fd.dataset_name=%s
+                                                and fd.dataset_namespace='{namespace}' and fd.dataset_name='{name}'
                                         {limit}
-                                        """,
-                                (self.Namespace, self.Name))
+                                        """
+        return sql
+
+    def list_files(self, recursive=False, with_metadata = False, condition=None, relationship="self",
+                limit=None):
+        # relationship is ignored for now
+        # condition is the filter condition in DNF nested list format
+        sql = self._list_files_sql(self.Namespace, self.Name, recursive, with_metadata, condition, relationship, limit) 
+        c = self.DB.cursor()
+        c.execute(sql)
+        if with_metadata:
+                return DBFileSet.from_metadata_tuples(self.DB, fetch_generator(c))
+        else:
                 return DBFileSet.from_shallow(self.DB, fetch_generator(c))
 
     def ___list_files(self, recursive=False, with_metadata = False, condition=None, relationship="self"):

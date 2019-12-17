@@ -35,6 +35,25 @@ class GUIHandler(BaseHandler):
 
     def index(self, request, relpath, **args):
         return self.redirect("./datasets")
+        
+    def mql(self, request, relpath, **args):
+        namespace = request.POST.get("namespace") or self.App.DefaultNamespace
+        query_text = request.POST.get("query")
+        query = parsed = assembled = optimized = None
+        results = False
+        with_sql = None
+        if query_text:
+            query = Query(query_text, default_namespace=namespace or None)
+            parsed = query.parse()
+            with self.App.DB.connect() as db:
+                assembled = query.assemble(db, namespace)
+            optimized = query.optimize()
+            with_sql = query.generate_sql()
+            results = True
+        
+        return self.render_to_response("mql.html", namespace = namespace, show_results = results,
+            query_text = query_text or "", parsed = parsed, assembled = assembled, optimized = optimized,
+		    with_sql = with_sql)
 
     def show_file(self, request, relpath, fid=None, **args):
         with self.App.DB.connect() as db:

@@ -17,7 +17,8 @@ create table parent_child
 (
     parent_id    text,
     child_id    text,
-    primary key (parent_id, child_id)
+    sequence    int,
+    primary key (parent_id, child_id, sequence)
 );
 
 create index parent_child_child on parent_child(child_id);
