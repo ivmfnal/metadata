@@ -1,7 +1,32 @@
+create table users
+(
+    username    text    primary key,
+    name        text,
+    email       text,
+    flags       text,
+);
+
+create table authenticators
+(
+    username    text    references users(username),
+    type        text
+        constraint authenticator_types check ( 
+            type in ('x509','password','ssh')
+            ),
+    secrets      text[],
+    primary key(username, type)
+);
+
+create table namespaces
+(
+	name	text	primary key,
+	owner	text    references  users(username)
+);
+
 create table files
 (
     id          text    primary key,
-    namespace   text,
+    namespace   text 	references namespaces(name),
     name        text
 );
 
@@ -9,19 +34,22 @@ create unique index file_names_unique on files(namespace, name);
 
 create table parent_child
 (
-    parent_id    text,
+    parent_id   text,
     child_id    text,
-    primary key (parent_id, child_id)
+    sequence    int,
+    primary key (parent_id, child_id, sequence)
 );
 
 create index parent_child_child on parent_child(child_id);
 
 create table datasets
 (
-    namespace           text,
+    namespace           text references namespaces(name),
     name                text,
     parent_namespace    text,
     parent_name         text,
+    frozen		boolean default 'false',
+    monotonic		boolean default 'false',
     primary key (namespace, name),
     foreign key (parent_namespace, parent_name) references datasets(namespace, name) 
 );
@@ -79,11 +107,40 @@ create index dataset_attr_bool on dataset_attributes(name, bool_value, dataset_n
 
 create table queries
 (
-    namespace       text,
+    namespace       text references namespaces(name),
     name            text,
     parameters      text[],
-    source          text,
+    source      text,
     primary key(namespace, name)
 );
+
+create table parameter_categories
+(
+    path        text    primary key,
+    owner       text    references  users(username),
+    restricted  boolean default 'false'
+);
+
+create table parameter_definitions
+(
+    category    text    references parameter_categories(path),
+    name        text,
+    type        text
+        constraint attribute_types check ( 
+            type in ('int','double','text','boolean',
+                    'int array','double array','text array','boolean array')
+            ),
+    int_values      bigint[],
+    int_min         bigint,
+    int_max         bigint,
+    double_values   double precision[],
+    double_min      double precision,
+    double_max      double precision,
+    text_values     text[],
+    text_pattern    text,
+    primary key(category, name)
+);
+
+    
 
 
