@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block headline %}
+	{% if create %}
+		Create User
+	{% elif edit %}
+		Edit user {{user.Username}} {{user.Name}}
+    {% else %}
+    
+	{% endif %}
+{% endblock %}
+
+{% block content %}
+
+<form method=POST action="./save_user">
+
+<input type="hidden" name="create" value="{{"yes" if create else "no"}}"/>
+
+<table class="form">
+	<tr>
+		<th>Username</th>
+		<td>
+			{% if create %}
+				<input type="text" name="username"/>
+			{% else %}
+				<input type="hidden" name="username" value="{{user.Username}}"/>
+				{{user.Username}}
+			{% endif %}
+		</td>
+	</tr>
+	<tr>
+		<th>Name</th>
+		<td>
+			{% if create %}
+				<input type="text" name="name"/>
+			{% elif edit %}
+				<input type="text" name="name" value="{{user.Name}}"/>
+            {% else %}
+                {{user.Name}}
+			{% endif %}
+		</td>
+	</tr>
+	<tr>
+		<th>EMail</th>
+		<td>
+			{% if create %}
+				<input type="text" name="email"/>
+			{% elif edit %}
+				<input type="text" name="email" value="{{user.EMail}}"/>
+            {% else %}
+                {{user.EMail}}
+			{% endif %}
+		</td>
+	</tr>
+	<tr>
+		<th>Flags</th>
+		<td>
+			{% if create %}
+				<input type="text" name="flags"/>
+			{% elif edit %}
+				<input type="text" name="flags" value="{{user.Flags|default('', True)}}"/>
+            {% else %}
+                {{user.Flags|default('', True)}}
+			{% endif %}
+		</td>
+	</tr>
+	{% if edit or create %}
+		<tr><td></td><td><input type="submit" value="Save"/></td>
+		</tr>
+	{% endif %}
+</table>
+
+</form>
+
+{% endblock %}
+	

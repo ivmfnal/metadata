@@ -36,6 +36,10 @@
             text-align:  left;
         }
         
+        .link_menu td {
+            padding: 5px;
+        }
+        
         .data td, .data th {
             padding: 3px 5px;
             border: 1px solid #CCC;
@@ -116,7 +120,17 @@
         border: solid 1px #E0E0E0;
         }
         
+    p.message {
+        color: black;
+    }
+    
+    p.error {
+        color: red;
+    }
         
+    a.button {
+        text-decoration: none;
+    }
     </style>
     
     <script src="{{GLOBAL_AppTopPath}}/static/js/request.js"></script>
@@ -143,8 +157,10 @@
     <h1>{{GLOBAL_SiteTitle}}</h1>
 
     <div id="main_menu">
-	<table class=placement>
+	<table class="placement link_menu">
 		<tr>
+		    <td><a href="{{GLOBAL_AppTopPath}}/gui/users">users</a></td>
+		    <td><a href="{{GLOBAL_AppTopPath}}/gui/namespaces">namepaces</a></td>
 		    <td><a href="{{GLOBAL_AppTopPath}}/gui/datasets">datasets</a></td>
 		    <td><a href="{{GLOBAL_AppTopPath}}/gui/query">query</a></td>
 		    <td><a href="{{GLOBAL_AppTopPath}}/gui/named_queries">named queries</a></td>
@@ -153,7 +169,7 @@
                         {% if GLOBAL_User %}
                             logged in as {{GLOBAL_User}} <a href="{{GLOBAL_AppTopPath}}/auth/logout?redirect={{GLOBAL_AppTopPath}}/gui/index">log out</a>
                         {% else %}
-                            <a href="{{GLOBAL_AppTopPath}}/auth/auth?redirect={{GLOBAL_AppTopPath}}/gui/index">log in</a>
+                            <a href="{{GLOBAL_AppTopPath}}/auth/login?redirect={{GLOBAL_AppTopPath}}/gui/index">log in</a>
                         {% endif %}</td>
 		</tr>
 	</table>

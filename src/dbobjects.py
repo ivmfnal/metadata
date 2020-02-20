@@ -24,12 +24,16 @@ def first_not_empty(lst):
             return v
     else:
         return val
-        
+                
 class DBFileSet(object):
     
-    def __init__(self, db, files):
+    def __init__(self, db, files, limit=None):
         self.DB = db
         self.Files = files
+        self.Limit = limit
+        
+    def limit(self, n):
+        return DBFileSet(self.DB, self.Files, n)
         
     @staticmethod
     def from_shallow(db, g):
@@ -59,7 +63,22 @@ class DBFileSet(object):
         return DBFileSet(db, gather_meta(g))
         
     def __iter__(self):
-        return self.Files
+        if self.Limit is None:
+            return self.Files
+        else:
+            def limited(lst, n):
+                for f in lst:
+                    if n > 0:
+                        yield f
+                    else:
+                        break
+                    n -= 1
+            return limited(self.Files, self.Limit)
+                        
+        
+    def as_list(self):
+        # list(DBFileSet) should work too
+        return list(self.Files)
             
     def parents(self, with_metadata = False):
         return self._relationship("parents", with_metadata)
@@ -101,7 +120,7 @@ class DBFileSet(object):
     def join(db, file_sets):
         first = file_sets[0]
         if len(file_sets) == 1:
-            return DBFileSet(db, first)
+            return first
         file_list = list(first)
         file_ids = set(f.FID for f in file_list)
         for another in file_sets[1:]:
@@ -111,25 +130,34 @@ class DBFileSet(object):
 
     @staticmethod
     def union(db, file_sets):
-        first = file_sets[0]
-        if len(file_sets) == 1:
-            return DBFileSet(db, first)
         def union_generator(file_lists):
             file_ids = set()
             for lst in file_lists:
+                #print("DBFileSet.union: lst:", lst)
                 for f in lst:
                     if not f.FID in file_ids:
                         file_ids.add(f.FID)
                         yield f
-        return DBFileSet(db, union_generator(file_sets))
+        gen = union_generator(file_sets)
+        #print("DBFileSet.union: returning:", gen)
+        return DBFileSet(db, gen)
 
     def subtract(self, right):
         right_ids = set(f.FID for f in right)
         return (f for f in self if not f.FID in right_ids)
         
     __sub__ = subtract
-
-            
+    
+    @staticmethod
+    def from_data_source(db, data_source, with_metadata, limit):
+        datasets = DBDataset.list_datasets(db, data_source.Patterns, data_source.WithChildren, 
+                data_source.Recursively, data_source.Having)
+        dnf = data_source.wheres_dnf()
+        #print("from_data_source: DataSource: patterns:", data_source.Patterns,
+        #            "  condition:", dnf)
+        return DBFileSet.union(db, (ds.list_files(with_metadata = with_metadata, condition=dnf, limit=limit) 
+                        for ds in datasets)).limit(limit)
+        
 class DBFile(object):
 
     def __init__(self, db, namespace = None, name = None, metadata = None, fid = None):
@@ -347,6 +375,7 @@ class MetaExpressionDNF(object):
         # meta_and = [(op, aname, avalue), ...]
         #
         self.Expression = meta_exp
+        #print("validate_exp: exp:", meta_exp)
         self.validate_exp(meta_exp)
         
     def __str__(self):
@@ -356,7 +385,7 @@ class MetaExpressionDNF(object):
     
     @staticmethod
     def validate_exp(exp):
-        print("validate_exp: exp:", exp)
+        #print("validate_exp: exp:", exp)
         for and_exp in exp:
             if not isinstance(and_exp, list):
                 raise ValueError("The 'and' expression is not a list: %s" % (repr(and_exp),))
@@ -408,12 +437,12 @@ class MetaExpressionDNF(object):
         dataset_namespace = dataset_namespace or "<dataset_namespace>"      # can be used for debugging
         dataset_name = dataset_name or "<dataset_name>"                     # can be used for debugging
         ands = [self.sql_and(and_term, dataset_namespace, dataset_name) for and_term in self.Expression]
-        limit = "" if limit is None else "limit {limit}"
+        limit = "" if limit is None else f"limit {limit}"
         return f"select distinct fid from (%s) as ands {limit}" % (" union ".join(ands))
         
 class DBDataset(object):
 
-    def __init__(self, db, namespace, name, parent_namespace=None, parent_name=None):
+    def __init__(self, db, namespace, name, parent_namespace=None, parent_name=None, frozen=False, monotonic=False):
         assert namespace is not None and name is not None
         assert (parent_namespace is None) == (parent_name == None)
         self.DB = db
@@ -421,15 +450,19 @@ class DBDataset(object):
         self.Name = name
         self.ParentNamespace = parent_namespace
         self.ParentName = parent_name
+        self.SQL = None
+        self.Frozen = frozen
+        self.Monotonic = monotonic
         
     def save(self, do_commit = True):
         c = self.DB.cursor()
         c.execute("""
-            insert into datasets(namespace, name, parent_namespace, parent_name) values(%s, %s, %s, %s)
+            insert into datasets(namespace, name, parent_namespace, parent_name, frozen, monotonic) values(%s, %s, %s, %s, %s, %s)
                 on conflict(namespace, name) 
-                    do update set parent_namespace=%s, parent_name=%s
+                    do update set parent_namespace=%s, parent_name=%s, frozen=%s, monotonic=%s
             """,
-            (self.Namespace, self.Name, self.ParentNamespace, self.ParentName, self.ParentNamespace, self.ParentName))
+            (self.Namespace, self.Name, self.ParentNamespace, self.ParentName, self.Frozen, self.Monotonic, 
+                    self.ParentNamespace, self.ParentName, self.Frozen, self.Monotonic))
         if do_commit:   c.execute("commit")
         return self
             
@@ -443,19 +476,30 @@ class DBDataset(object):
         if do_commit:   c.execute("commit")
         return self
         
+    def add_files(self, files):
+        c = self.DB.cursor()
+        c.executemany(f"""
+            insert into files_datasets(file_id, dataset_namespace, dataset_name) values(%s, '{self.Namespace}', '{self.Name}')
+                on conflict do nothing""", ((f.FID,) for f in files))
+        c.execute("commit")
+        return self
+        
+        
     @staticmethod
     def get(db, namespace, name):
         c = db.cursor()
         #print(namespace, name)
-        c.execute("""select parent_namespace, parent_name
+        c.execute("""select parent_namespace, parent_name, frozen, monotonic
                         from datasets
                         where namespace=%s and name=%s""",
                 (namespace, name))
         tup = c.fetchone()
-        parent_namespace, parent_name = None, None
-        if tup is not None:
-            parent_namespace, parent_name = tup
-        return DBDataset(db, namespace, name, parent_namespace, parent_name)
+        if tup is None: return None
+        parent_namespace, parent_name, frozen, monotonic = tup
+        dataset = DBDataset(db, namespace, name, parent_namespace, parent_name)
+        dataset.Frozen = frozen
+        dataset.Monotonic = monotonic
+        return dataset
         
     @staticmethod
     def list(db, namespace=None, parent_namespace=None, parent_name=None):
@@ -468,14 +512,14 @@ class DBDataset(object):
             wheres.append("parent_name = '%s'" % (parent_name,))
         wheres = "" if not wheres else "where " + " and ".join(wheres)
         c=db.cursor()
-        c.execute("""select namespace, name, parent_namespace, parent_name
+        c.execute("""select namespace, name, parent_namespace, parent_name, frozen, monotonic
                 from datasets %s""" % (wheres,))
-        return (DBDataset(db, namespace, name, parent_namespace, parent_name) for
-                namespace, name, parent_namespace, parent_name in fetch_generator(c))
+        return (DBDataset(db, namespace, name, parent_namespace, parent_name, frozen, monotonic) for
+                namespace, name, parent_namespace, parent_name, frozen, monotonic in fetch_generator(c))
 
     @staticmethod
     def _list_files_sql(namespace, name, recursive, with_metadata, condition, relationship, limit):
-        print("_list_files_sql: condition:", condition)
+        print("_list_files_sql(%s, %s, %s, %s, %s, %s, %s)" % (namespace, name, recursive, with_metadata, condition, relationship, limit))
         # relationship is ignored for now
         # condition is the filter condition in DNF nested list format
 
@@ -491,7 +535,7 @@ class DBDataset(object):
                                         where files.id in (
                                             {file_ids_sql}
                                         )
-                                        order by files.id"""
+                                        """
                 else:
                         limit = "" if limit is None else f"limit {limit}"
                         sql = f"""select f.id, f.namespace, f.name, 
@@ -504,7 +548,6 @@ class DBDataset(object):
                                                 where fd.dataset_namespace='{namespace}' and fd.dataset_name='{name}'
                                                 {limit}
                                         )
-                                        order by f.id
                                         """
         else:
                 if condition:
@@ -522,13 +565,16 @@ class DBDataset(object):
                                                 and fd.dataset_namespace='{namespace}' and fd.dataset_name='{name}'
                                         {limit}
                                         """
+        print("_list_files_sql ->", sql)
         return sql
 
     def list_files(self, recursive=False, with_metadata = False, condition=None, relationship="self",
                 limit=None):
         # relationship is ignored for now
         # condition is the filter condition in DNF nested list format
-        sql = self._list_files_sql(self.Namespace, self.Name, recursive, with_metadata, condition, relationship, limit) 
+        self.SQL = sql = self._list_files_sql(
+                self.Namespace, self.Name, recursive, with_metadata, condition, relationship, limit) 
+        #print("DBDataset: list_files: sql:", sql)
         c = self.DB.cursor()
         c.execute(sql)
         if with_metadata:
@@ -613,7 +659,45 @@ class DBDataset(object):
     def to_json(self):
         return json.dumps(self.to_jsonable())
         
-
+    @staticmethod
+    def list_datasets(db, patterns, with_children, recursively, having):
+        #
+        # does not use "having" yet !
+        #
+        datasets = set()
+        c = db.cursor()
+        for match, (namespace, name) in patterns:
+            #print("list_datasets: match, namespace, name", match, namespace, name)
+            if match:
+                c.execute("""select namespace, name from datasets
+                            where namespace = %s and name like %s""", (namespace, name))
+            else:
+                c.execute("""select namespace, name from datasets
+                            where namespace = %s and name = %s""", (namespace, name))
+            for namespace, name in c.fetchall():
+                #print("list_datasets: add", namespace, name)
+                datasets.add((namespace, name))
+        #print("list_datasets: with_children:", with_children)
+        if with_children:
+            parents = datasets.copy()
+            children = set()
+            parents_scanned = set()
+            while parents:
+                this_level_children = set()
+                for pns, pn in parents:
+                    c.execute("""select namespace, name from datasets
+                                where parent_namespace = %s and parent_name=%s""",
+                                (pns, pn))
+                    for ns, n in c.fetchall():
+                        this_level_children.add((ns, n))
+                parents_scanned |= parents
+                datasets |= this_level_children
+                if recursively:
+                    parents = this_level_children - parents_scanned
+                else:
+                    parents = set()
+        datasets = (DBDataset.get(db, namespace, name) for namespace, name in datasets)
+        return datasets
         
 class DBNamedQuery(object):
 
@@ -663,3 +747,92 @@ class DBNamedQuery(object):
         )
         
 
+class DBUser(object):
+
+    def __init__(self, db, username, name, email, flags=""):
+        self.Username = username
+        self.Name = name
+        self.EMail = email
+        self.Flags = flags
+        self.DB = db
+        self.Authenticators = {}        # type -> [secret,...]
+        
+    def __str__(self):
+        return "DBUser(%s, %s, %s, %s)" % (self.Username, self.Name, self.EMail, self.Flags)
+        
+    __repr__ = __str__
+        
+    def save(self):
+        c = self.DB.cursor()
+        c.execute("""
+            insert into users(username, name, email, flags) values(%s, %s, %s, %s)
+                on conflict(username) 
+                    do update set name=%s, email=%s, flags=%s;
+            """,
+            (self.Username, self.Name, self.EMail, self.Flags, self.Name, self.EMail, self.Flags))
+        
+        c.execute("delete from authenticators where username=%s", (self.Username,))
+        c.executemany("insert into authenticators(username, type, secrets) values(%s, %s, %s)",
+            [(self.Username, typ, lst) for typ, lst in self.Authenticators.items()])
+        c.execute("commit")
+        return self
+        
+    @staticmethod
+    def get(db, username):
+        c = db.cursor()
+        c.execute("""select name, email, flags
+                        from users
+                        where username=%s""",
+                (username,))
+        tup = c.fetchone()
+        if not tup: return None
+        (name, email, flags) = tup
+        u = DBUser(db, username, name, email, flags)
+        c.execute("""select type, secrets from authenticators where username=%s""", (username,))
+        u.Authenticators = {typ:secrets for typ, secrets in c.fetchall()}
+        return u
+    
+    @staticmethod 
+    def list(db):
+        c = db.cursor()
+        c.execute("""select username, name, email, flags from users order by username""")
+        return (DBUser(db, username, name, email, flags) for  username, name, email, flags in c.fetchall())  
+
+class DBNamespace(object):
+
+    def __init__(self, db, name, owner):
+        self.Name = name
+        self.Owner = owner
+        self.DB = db
+        
+    def save(self):
+        c = self.DB.cursor()
+        c.execute("""
+            insert into namespaces(name, owner) values(%s, %s)
+                on conflict(name) 
+                    do update set owner=%s;
+            commit
+            """,
+            (self.Name, self.Owner, self.Owner))
+        return self
+        
+    @staticmethod
+    def get(db, name):
+        c = db.cursor()
+        c.execute("""select owner from namespaces where name=%s""", (name,))
+        tup = c.fetchone()
+        if not tup: return None
+        return DBNamespace(db, name, tup[0])
+        
+    @staticmethod 
+    def list(db, owned_by=None):
+        c = db.cursor()
+        c.execute("""select name, owner from namespaces order by name""")
+        lst = (DBNamespace(db, name, owner) for  name, owner in c.fetchall())
+        if owned_by is not None:
+            lst = (ns for ns in lst if ns.Owner == owned_by)
+        return lst
+
+
+        
+        

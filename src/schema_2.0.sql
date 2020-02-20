@@ -3,7 +3,7 @@ create table users
     username    text    primary key,
     name        text,
     email       text,
-    flags       text,
+    flags       text
 );
 
 create table authenticators
@@ -34,10 +34,10 @@ create unique index file_names_unique on files(namespace, name);
 
 create table parent_child
 (
-    parent_id   text,
-    child_id    text,
-    sequence    int,
-    primary key (parent_id, child_id, sequence)
+    parent_id   text references files(id),
+    child_id    text references files(id),
+    parent_sequence    int,
+    primary key (parent_id, child_id, parent_sequence)
 );
 
 create index parent_child_child on parent_child(child_id);

@@ -26,13 +26,13 @@
     
 {% if show_results %}
             <h3>Parsed</h3>
-                <pre class=code>{{parsed.pretty()}}</pre>
+                <pre class=code>{{parsed}}</pre>
             <h3>Assembled</h3>
-                <pre class=code>{{assembled.pretty()}}</pre>
-            <h3>Canonic DNF</h3>
-                <pre class=code>{{optimized.pretty()}}</pre>
+                <pre class=code>{{assembled}}</pre>
+            <h3>Optimized</h3>
+                <pre class=code>{{optimized}}</pre>
             <h3>SQL generated</h3>
-                <pre class=code>{{with_sql.pretty()}}</pre>
+                <pre class=code>{{with_sql}}</pre>
 {% endif %}
 
     

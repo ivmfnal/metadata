@@ -7,9 +7,9 @@ conn = psycopg2.connect(connstr)
 
 namespace = "test"
 
-dataset1 = DBDataset(conn, namespace, "Dataset1").save()
-dataset2 = DBDataset(conn, namespace, "Dataset2").save()
-dataset3 = DBDataset(conn, namespace, "Dataset3").save()
+dataset1 = DBDataset(conn, namespace, "A").save()
+dataset2 = DBDataset(conn, namespace, "B").save()
+dataset3 = DBDataset(conn, namespace, "C").save()
 
 files = [DBFile(conn, namespace, "f%s.dat" % (c,)) for c in "abcdefghijklmnopqrstuvwxyz"]
 files = {f.Name:f for f in files}

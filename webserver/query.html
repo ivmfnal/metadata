@@ -4,6 +4,16 @@
 
 {% block content %}
 
+{% if error %}
+    <p class="error">{{error}}</p>
+{% endif %}
+
+{% if message %}
+    <p class="message">{{message}}</p>
+{% endif %}
+
+
+
 <form method="post" action="">
     <table class="form">
 		<tr>
@@ -37,16 +47,23 @@
         #}
         <tr><td colspan=3>&nbsp;</td></tr>
         <tr>
-            <th>Run:</th>
-            <td><input type="checkbox" name="with_meta" 
-                {% if with_meta %}checked="checked"{% endif %}
-            >&nbsp;include metadata <input type="submit" name="action" value="run"/></td>
-            <td></td>
+            <th>Include metadata:</th>
+            <td><input type="checkbox" name="with_meta" {% if with_meta %}checked="checked"{% endif %}>
         </tr>
+        {% if allow_save_as_dataset %}
+            <tr>
+                <th>{{"Run" if not show_files else "Re-run"}} and save results as dataset:</th>
+                <td><input type=checkbox name="save_as_dataset"/>&nbsp;&nbsp;&nbsp;Namespace:&nbsp;<select name="save_as_dataset_namespace">
+                                    {% for ns in namespaces %}
+                                        <option value="{{ns.Name}}">{{ns.Name}}</option>
+                                    {% endfor %}
+                                </select>&nbsp;&nbsp;&nbsp;Name:&nbsp;<input type=text name="save_as_dataset_name"/></td>
+                </td>
+            </tr>
+        {% endif %}
         <tr>
             <td></td>
-            <td></td>
-            <td></td>
+            <td><input type="submit" name="action" value="run"/></td>
         </tr>
     </table>
 </form>
@@ -62,8 +79,8 @@
     </p>
 
     {% if meta_stats %}
-        <h3>Metadata values distribution</h3>
-        <table class="data">
+        <h3><a href="javascript:toggle_meta_stats()" id="meta_stats_toggle" class="button">+</a>&nbsp;&nbsp;&nbsp;Metadata values distribution</h3>
+        <table class="data" id="meta_stats_table" style="display:none; visibility:hidden">
             <tr>
                 <th>Attribute</th><th>Value</th><th>Count</th>
             </tr>
@@ -76,6 +93,33 @@
                 {% endfor %}
             {% endfor %}
         </table>
+        
+        <script type="text/javascript">
+            var meta_stats_shown=false;
+            
+            function toggle_meta_stats()
+            {
+                var t = document.getElementById("meta_stats_table");
+                var b = document.getElementById("meta_stats_toggle");
+                if (meta_stats_shown)
+                {
+                    t.style.visibility = "hidden";
+                    t.style.display = "none";
+                    b.innerHTML = "+";
+                    meta_stats_shown=false;
+                }
+                else
+                {
+                    t.style.visibility = "visible";
+                    t.style.display = "";
+                    b.innerHTML = "-";
+                    meta_stats_shown=true;
+                }
+            }
+        </script>
+                
+                    
+        
     {% endif %}
 
     <h3>Files</h3>
