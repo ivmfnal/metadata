@@ -9,6 +9,8 @@ Welcome to MetadataDB's documentation!
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
+   
+   query_language
 
 
 
