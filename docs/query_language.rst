@@ -16,7 +16,7 @@ The simplest MQL query you can write is a *Dataset Query*, which looks like this
 
 .. code-block:: sql
 
-        from MyScope:MyDataset
+        dataset MyScope:MyDataset
         
 This query simply returns all the files included in the dataset "MyScope:MyDataset".
 
@@ -24,13 +24,13 @@ You can also specify multiple datasets in the same query:
 
 .. code-block:: sql
 
-        from MyScope:MC1, MyScope:MC2, AnotherScope:MC
+        dataset MyScope:MC1, MyScope:MC2, AnotherScope:MC
 
 Also, you can use wildcards in the dataset name (but not in the scope name):
 
 .. code-block:: sql
 
-        from matching MyScope:MC%, AnotherScope:MC
+        dataset matching MyScope:MC%, AnotherScope:MC
 
 Note that you have to use database wildcard notation where '%' matches any string, including empty string, and '_' matches any single
 character.
@@ -39,7 +39,7 @@ In particular, if you want to select all files from all known datasets, you can 
 
 .. code-block:: sql
 
-        from matching %
+        dataset matching %
                 where run=1234
 
 
@@ -51,14 +51,14 @@ Results of any query can be filtered by adding some metadata criteria expression
 
 .. code-block:: sql
 
-        from MyScope:MyDataset
+        dataset MyScope:MyDataset
                 where x > 0.5
                 
 This will return all the files in the dataset, which have a floating point metadata field named "x" with value greater than 0.5. A meta-filter can be more complicated:
 
 .. code-block:: sql
 
-        from MyScope:MyDataset
+        dataset MyScope:MyDataset
                 where x > 0.5 and x < 1.5 
                         and run = 123 
                         and ( type="MC" or type="Data" )
@@ -73,9 +73,9 @@ Queries can be combined using boolean operations *union*, *join*, and subtractio
 .. code-block:: sql
 
         union(
-                from MC:Cosmics
+                dataset MC:Cosmics
                         where p > 0.5 and p < 1.5 
-                from MC:Beam where e = 10
+                dataset MC:Beam where e = 10
         )
         
 This query will return files from both datasets. Even if the individual queries happen to produce overallping
@@ -86,9 +86,9 @@ Queries can be *joined* to procude the intersection of the results of individual
 .. code-block:: sql
 
         join(
-                from MC:All
+                dataset MC:All
                         where p > 0.5 and p < 1.5 
-                from MC:All
+                dataset MC:All
                         where e = 10
         )
         
@@ -96,7 +96,7 @@ Of course this is equivalent to:
 
 .. code-block:: sql
 
-        from MC:All
+        dataset MC:All
                 where p > 0.5 and p < 1.5 and e = 10
         
 Queries can be subtracted from each other, which means the resulting set will be boolean subtraction of second query
@@ -104,14 +104,14 @@ result set from the first:
 
 .. code-block:: sql
 
-        from MC:Beam where e1 > 10 - from MC:Exotics
+        dataset MC:Beam where e1 > 10 - dataset MC:Exotics
         
 Although is it not necessary in this example, you can use parethesis and white space to make the query more readable:
 
 .. code-block:: sql
 
-        (from MC:Beam where e1 > 10) 
-        - (from MC:Exotics where type = "abcd")
+        (dataset MC:Beam where e1 > 10) 
+        - (dataset MC:Exotics where type = "abcd")
 
 Also, you can use square and curly brackets as an alternative to using explicit words "union" and "join" respectively.
 The following two queries are equivalent:
@@ -119,18 +119,18 @@ The following two queries are equivalent:
 .. code-block:: sql
 
         [
-                from s:A,
+                dataset s:A,
                 {
-                        from s:B,
-                        from s:C
+                        dataset s:B,
+                        dataset s:C
                 }
         ]
 
         union (
-                from s:A,
+                dataset s:A,
                 join(
-                        from s:B,
-                        from s:C
+                        dataset s:B,
+                        dataset s:C
                 )
         )
         
@@ -142,10 +142,10 @@ operations on the file sets. They in the Query Language, they are invoked using 
 
 .. code-block:: sql
 
-        filter sample(0.5)( from s:A )
+        filter sample(0.5)( dataset s:A )
         
 Here, *filter* the the keyword, *sample* is the name of the Python function to be used to filter the results
-of the argument query (simple "from s:A" query in this case). As you can see, you can pass some
+of the argument query (simple "dataset s:A" query in this case). As you can see, you can pass some
 parameters to the function (the number 0.5).
 
 A filter can accept multiple parameters and/or queries:
@@ -153,7 +153,7 @@ A filter can accept multiple parameters and/or queries:
 .. code-block:: sql
 
         filter process(0.5, 1, 3.1415)
-                ( from s:A, from s:B - from s:D )
+                ( dataset s:A, dataset s:B - dataset s:D )
 
 The user supplied function looks like ths:
 
@@ -178,13 +178,13 @@ You can avoid repeting the same namespace using "with" clause. The following are
 
         with namespace="s"
         {
-                from B,
-                from C
+                dataset B,
+                dataset C
         }
 
         {
-                from s:B,
-                from s:C
+                dataset s:B,
+                dataset s:C
         }
 
 Each "with" clause has its scope limited to the immediate query it is attached to. For example, the following query
@@ -193,17 +193,17 @@ is invalid:
 .. code-block:: sql
 
         with namespace="s"      
-                from A - from B
+                dataset A - dataset B
 
-It is invalid becaise the "with" clause applies only to the query it is immediately attached to - "from A", 
-but not to "from B", so second dataset query lacks the namespace specification for the dataset B.
+It is invalid becaise the "with" clause applies only to the query it is immediately attached to - "dataset A", 
+but not to "dataset B", so second dataset query lacks the namespace specification for the dataset B.
 
 Here is how it can be corrected:
 
 .. code-block:: sql
 
         with namespace="s"      
-                (from A - from B)
+                (dataset A - dataset B)
         
 And the outer "with" clause can be overridden by the inner clause:
 
@@ -211,13 +211,13 @@ And the outer "with" clause can be overridden by the inner clause:
 
         with namespace = "x"
                 union (
-                        from A,
+                        dataset A,
                         with namespace = "y"
                                 join(
-                                        from B,
-                                        from C
+                                        dataset B,
+                                        dataset C
                                 ),
-                        from D
+                        dataset D
                 )
                 
 In this example, datasets A and D will be assumed to be in the namespace "x", and datasets B and C - in
@@ -229,9 +229,9 @@ Of course, explicit namespace specification overrides the one specified using "w
 
         with namespace = "x"
                 union (
-                        from A,
-                        from y:B,
-                        from C
+                        dataset A,
+                        dataset y:B,
+                        dataset C
                 )
                 
 
