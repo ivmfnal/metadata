@@ -1,0 +1,283 @@
+
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta charset="utf-8" />
+    <title>MQL - Metadata Query Language &#8212; MetadataDB  documentation</title>
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <script type="text/javascript" src="_static/language_data.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <div class="section" id="mql-metadata-query-language">
+<h1>MQL - Metadata Query Language<a class="headerlink" href="#mql-metadata-query-language" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="introduction">
+<h2>Introduction<a class="headerlink" href="#introduction" title="Permalink to this headline">¶</a></h2>
+<p>One of the functions of the Metadata Database is to produce list of files matching a set of crieria specidied
+by the user. The product has its own simple language to write these queries in called MQL (pronpounced: MEE-quel,
+like “sequel”, but with M). MQL is a language to describe queries against the metadata database.
+A query produces a set of files. The order of files in the returned set is not guaranteed and can not be
+relied on.</p>
+</div>
+<div class="section" id="dataset-query">
+<h2>Dataset Query<a class="headerlink" href="#dataset-query" title="Permalink to this headline">¶</a></h2>
+<p>The simplest MQL query you can write is a <em>Dataset Query</em>, which looks like this:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="k">from</span> <span class="n">MyScope</span><span class="p">:</span><span class="n">MyDataset</span>
+</pre></div>
+</div>
+<p>This query simply returns all the files included in the dataset “MyScope:MyDataset”.</p>
+<p>You can also specify multiple datasets in the same query:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="k">from</span> <span class="n">MyScope</span><span class="p">:</span><span class="n">MC1</span><span class="p">,</span> <span class="n">MyScope</span><span class="p">:</span><span class="n">MC2</span><span class="p">,</span> <span class="n">AnotherScope</span><span class="p">:</span><span class="n">MC</span>
+</pre></div>
+</div>
+<p>Also, you can use wildcards in the dataset name (but not in the scope name):</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="k">from</span> <span class="n">matching</span> <span class="n">MyScope</span><span class="p">:</span><span class="n">MC</span><span class="o">%</span><span class="p">,</span> <span class="n">AnotherScope</span><span class="p">:</span><span class="n">MC</span>
+</pre></div>
+</div>
+<p>Note that you have to use database wildcard notation where ‘%’ matches any string, including empty string, and ‘_’ matches any single
+character.</p>
+<p>In particular, if you want to select all files from all known datasets, you can do this:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="k">from</span> <span class="n">matching</span> <span class="o">%</span>
+        <span class="k">where</span> <span class="n">run</span><span class="o">=</span><span class="mi">1234</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="metadata-filtering">
+<h2>Metadata Filtering<a class="headerlink" href="#metadata-filtering" title="Permalink to this headline">¶</a></h2>
+<p>Results of any query can be filtered by adding some metadata criteria expression, called <em>meta-filter</em>:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="k">from</span> <span class="n">MyScope</span><span class="p">:</span><span class="n">MyDataset</span>
+        <span class="k">where</span> <span class="n">x</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">.</span><span class="mi">5</span>
+</pre></div>
+</div>
+<p>This will return all the files in the dataset, which have a floating point metadata field named “x” with value greater than 0.5. A meta-filter can be more complicated:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="k">from</span> <span class="n">MyScope</span><span class="p">:</span><span class="n">MyDataset</span>
+        <span class="k">where</span> <span class="n">x</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">.</span><span class="mi">5</span> <span class="k">and</span> <span class="n">x</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">.</span><span class="mi">5</span>
+                <span class="k">and</span> <span class="n">run</span> <span class="o">=</span> <span class="mi">123</span>
+                <span class="k">and</span> <span class="p">(</span> <span class="k">type</span><span class="o">=</span><span class="ss">&quot;MC&quot;</span> <span class="k">or</span> <span class="k">type</span><span class="o">=</span><span class="ss">&quot;Data&quot;</span> <span class="p">)</span>
+</pre></div>
+</div>
+<p>Generally, all white space is ignored in MQL.</p>
+</div>
+<div class="section" id="combining-queries">
+<h2>Combining Queries<a class="headerlink" href="#combining-queries" title="Permalink to this headline">¶</a></h2>
+<p>Queries can be combined using boolean operations <em>union</em>, <em>join</em>, and subtraction to produce new queries:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="k">union</span><span class="p">(</span>
+        <span class="k">from</span> <span class="n">MC</span><span class="p">:</span><span class="n">Cosmics</span>
+                <span class="k">where</span> <span class="n">p</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">.</span><span class="mi">5</span> <span class="k">and</span> <span class="n">p</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">.</span><span class="mi">5</span>
+        <span class="k">from</span> <span class="n">MC</span><span class="p">:</span><span class="n">Beam</span> <span class="k">where</span> <span class="n">e</span> <span class="o">=</span> <span class="mi">10</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>This query will return files from both datasets. Even if the individual queries happen to produce overallping
+sets of files, each file will appear only <em>once</em> in the results of the <em>union</em> query.</p>
+<p>Queries can be <em>joined</em> to procude the intersection of the results of individual queries:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="k">join</span><span class="p">(</span>
+        <span class="k">from</span> <span class="n">MC</span><span class="p">:</span><span class="k">All</span>
+                <span class="k">where</span> <span class="n">p</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">.</span><span class="mi">5</span> <span class="k">and</span> <span class="n">p</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">.</span><span class="mi">5</span>
+        <span class="k">from</span> <span class="n">MC</span><span class="p">:</span><span class="k">All</span>
+                <span class="k">where</span> <span class="n">e</span> <span class="o">=</span> <span class="mi">10</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Of course this is equivalent to:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="k">from</span> <span class="n">MC</span><span class="p">:</span><span class="k">All</span>
+        <span class="k">where</span> <span class="n">p</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">.</span><span class="mi">5</span> <span class="k">and</span> <span class="n">p</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">.</span><span class="mi">5</span> <span class="k">and</span> <span class="n">e</span> <span class="o">=</span> <span class="mi">10</span>
+</pre></div>
+</div>
+<p>Queries can be subtracted from each other, which means the resulting set will be boolean subtraction of second query
+result set from the first:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="k">from</span> <span class="n">MC</span><span class="p">:</span><span class="n">Beam</span> <span class="k">where</span> <span class="n">e1</span> <span class="o">&gt;</span> <span class="mi">10</span> <span class="o">-</span> <span class="k">from</span> <span class="n">MC</span><span class="p">:</span><span class="n">Exotics</span>
+</pre></div>
+</div>
+<p>Although is it not necessary in this example, you can use parethesis and white space to make the query more readable:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="p">(</span><span class="k">from</span> <span class="n">MC</span><span class="p">:</span><span class="n">Beam</span> <span class="k">where</span> <span class="n">e1</span> <span class="o">&gt;</span> <span class="mi">10</span><span class="p">)</span>
+<span class="o">-</span> <span class="p">(</span><span class="k">from</span> <span class="n">MC</span><span class="p">:</span><span class="n">Exotics</span> <span class="k">where</span> <span class="k">type</span> <span class="o">=</span> <span class="ss">&quot;abcd&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Also, you can use square and curly brackets as an alternative to using explicit words “union” and “join” respectively.
+The following two queries are equivalent:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span>[
+        from s:A,
+        {
+                from s:B,
+                from s:C
+        }
+]
+
+union (
+        from s:A,
+        join(
+                from s:B,
+                from s:C
+        )
+)
+</pre></div>
+</div>
+</div>
+<div class="section" id="external-filters">
+<h2>External Filters<a class="headerlink" href="#external-filters" title="Permalink to this headline">¶</a></h2>
+<p>The Meatadata Database Query Engine lets the user add custom Python code to be used as a more complicated
+operations on the file sets. They in the Query Language, they are invoked using “filter” keyword:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="n">filter</span> <span class="n">sample</span><span class="p">(</span><span class="mi">0</span><span class="p">.</span><span class="mi">5</span><span class="p">)(</span> <span class="k">from</span> <span class="n">s</span><span class="p">:</span><span class="n">A</span> <span class="p">)</span>
+</pre></div>
+</div>
+<p>Here, <em>filter</em> the the keyword, <em>sample</em> is the name of the Python function to be used to filter the results
+of the argument query (simple “from s:A” query in this case). As you can see, you can pass some
+parameters to the function (the number 0.5).</p>
+<p>A filter can accept multiple parameters and/or queries:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="n">filter</span> <span class="n">process</span><span class="p">(</span><span class="mi">0</span><span class="p">.</span><span class="mi">5</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">.</span><span class="mi">1415</span><span class="p">)</span>
+        <span class="p">(</span> <span class="k">from</span> <span class="n">s</span><span class="p">:</span><span class="n">A</span><span class="p">,</span> <span class="k">from</span> <span class="n">s</span><span class="p">:</span><span class="n">B</span> <span class="o">-</span> <span class="k">from</span> <span class="n">s</span><span class="p">:</span><span class="n">D</span> <span class="p">)</span>
+</pre></div>
+</div>
+<p>The user supplied function looks like ths:</p>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">process</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="n">inputs</span><span class="p">):</span>
+        <span class="c1"># ...</span>
+        <span class="k">return</span> <span class="n">iterable</span>
+</pre></div>
+</div>
+<p>The <em>params</em> argument will receive the pist of parameters and the <em>inputs</em> will get the list of
+input file sets. The function is supposed to return a single iterable (a list, a generator, etc.) as the
+output file set.</p>
+</div>
+<div class="section" id="common-namesaces">
+<h2>Common Namesaces<a class="headerlink" href="#common-namesaces" title="Permalink to this headline">¶</a></h2>
+<p>Typically (but not necessarily), all the datasets mentioned in a query refer to the same namespace.
+You can avoid repeting the same namespace using “with” clause. The following are equivalent:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span>with namespace=&quot;s&quot;
+{
+        from B,
+        from C
+}
+
+{
+        from s:B,
+        from s:C
+}
+</pre></div>
+</div>
+<p>Each “with” clause has its scope limited to the immediate query it is attached to. For example, the following query
+is invalid:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="n">namespace</span><span class="o">=</span><span class="ss">&quot;s&quot;</span>
+        <span class="k">from</span> <span class="n">A</span> <span class="o">-</span> <span class="k">from</span> <span class="n">B</span>
+</pre></div>
+</div>
+<p>It is invalid becaise the “with” clause applies only to the query it is immediately attached to - “from A”,
+but not to “from B”, so second dataset query lacks the namespace specification for the dataset B.</p>
+<p>Here is how it can be corrected:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="n">namespace</span><span class="o">=</span><span class="ss">&quot;s&quot;</span>
+        <span class="p">(</span><span class="k">from</span> <span class="n">A</span> <span class="o">-</span> <span class="k">from</span> <span class="n">B</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>And the outer “with” clause can be overridden by the inner clause:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="n">namespace</span> <span class="o">=</span> <span class="ss">&quot;x&quot;</span>
+        <span class="k">union</span> <span class="p">(</span>
+                <span class="k">from</span> <span class="n">A</span><span class="p">,</span>
+                <span class="k">with</span> <span class="n">namespace</span> <span class="o">=</span> <span class="ss">&quot;y&quot;</span>
+                        <span class="k">join</span><span class="p">(</span>
+                                <span class="k">from</span> <span class="n">B</span><span class="p">,</span>
+                                <span class="k">from</span> <span class="k">C</span>
+                        <span class="p">),</span>
+                <span class="k">from</span> <span class="n">D</span>
+        <span class="p">)</span>
+</pre></div>
+</div>
+<p>In this example, datasets A and D will be assumed to be in the namespace “x”, and datasets B and C - in
+namespace “y”.</p>
+<p>Of course, explicit namespace specification overrides the one specified using “with”:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="n">namespace</span> <span class="o">=</span> <span class="ss">&quot;x&quot;</span>
+        <span class="k">union</span> <span class="p">(</span>
+                <span class="k">from</span> <span class="n">A</span><span class="p">,</span>
+                <span class="k">from</span> <span class="n">y</span><span class="p">:</span><span class="n">B</span><span class="p">,</span>
+                <span class="k">from</span> <span class="k">C</span>
+        <span class="p">)</span>
+</pre></div>
+</div>
+<p>This will return union of datasets “x:A”, “y:B” and “x:C”.</p>
+</div>
+</div>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">MetadataDB</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2019, Igor Mandrichenko.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 2.2.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+      |
+      <a href="_sources/query_language.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
