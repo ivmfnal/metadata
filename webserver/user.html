@@ -53,17 +53,23 @@
 		</td>
 	</tr>
 	<tr>
-		<th>Flags</th>
+		<th>Roles</th>
 		<td>
-			{% if create %}
-				<input type="text" name="flags"/>
-			{% elif edit %}
-				<input type="text" name="flags" value="{{user.Flags|default('', True)}}"/>
+            {% if create %}
+                {% for r in all_roles %}
+                    <input type="checkbox" name="member:{{r.Name}}"/>{{r.Name}}&nbsp;({{r.Description}})<br/>
+                {% endfor %}
+            {% elif edit %}
+                {% for r in all_roles %}
+                    <input type="checkbox" name="member:{{r.Name}}" {% if user in r %}checked="checked"{% endif %}/>{{r.Name}}&nbsp;({{r.Description}})<br/>
+                {% endfor %}
             {% else %}
-                {{user.Flags|default('', True)}}
-			{% endif %}
+                {% for r in user.roles() %}{{r.Name}}&nbsp;({{r.Description}})<br/>{% endfor %}
+            {% endif %}
 		</td>
 	</tr>
+    
+    
 	{% if edit or create %}
 		<tr><td></td><td><input type="submit" value="Save"/></td>
 		</tr>

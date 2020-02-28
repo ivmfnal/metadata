@@ -19,7 +19,11 @@
 		<th>Namespace</th>
 		<td>
 			{% if create %}
-				<input type="text" name="namespace"/>
+				<select name="namespace"/>
+                    {% for ns in namespaces %}
+                        <option value="{{ns.Name}}">{{ns.Name}}</option>
+                    {% endfor %}
+                </select>
 			{% else %}
 				<input type="hidden" name="namespace" 
 					value="{{query.Namespace}}"/>

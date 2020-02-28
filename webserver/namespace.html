@@ -2,7 +2,7 @@
 
 {% block headline %}
 	{% if create %}
-		Create Namespace
+		Create namespace
 	{% elif edit %}
 		Edit namespace {{namespace.Name}}
     {% else %}
@@ -29,11 +29,15 @@
 		</td>
 	</tr>
 	<tr>
-		<th>Owner</th>
+		<th>Owner role</th>
 		<td>{% if create %}
-                {{GLOBAL_User}}
+                <select name="role">
+                    {% for r in roles %}
+                        <option value="{{r.Name}}">{{r.Name}}</option>
+                    {% endfor %}
+                </select>
             {% else %}
-                {{namespace.Owner}}
+                {{namespace.Owner.Name}}
             {% endif %}    
         </td>
 	</tr>

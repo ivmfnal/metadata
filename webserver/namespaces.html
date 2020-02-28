@@ -14,7 +14,7 @@
 	{% for ns in namespaces %}
 		<tr>
 				<td><a href="./namespace?name={{ns.Name}}">{{ns.Name}}</a></td>
-				<td><a href="./user?username={{ns.Owner}}">{{ns.Owner}}<a></td>
+				<td><a href="./role?name={{ns.Owner.Name}}">{{ns.Owner.Name}}<a></td>
 	    </tr>
 	{% endfor %}
 </table>

@@ -1,5 +1,5 @@
 import psycopg2, sys, getopt
-from dbobjects import DBDataset, DBFile
+from dbobjects2 import DBDataset, DBFile
 
 connstr = sys.argv[1]
 
@@ -15,14 +15,13 @@ files = [DBFile(conn, namespace, "f%s.dat" % (c,)) for c in "abcdefghijklmnopqrs
 files = {f.Name:f for f in files}
 
 for i, (fn, f) in enumerate(files.items()):
-    meta = {
+    f.Metadata = {
         "i":    i,
         "s":    fn,
         "f":    float(i*i),
         "b":    i%2 == 0
     }
     f.save()
-    f.save_metadata(meta)
    
 for c in "abcdefghijklmnop":
     f=files["f%s.dat" % (c,)]

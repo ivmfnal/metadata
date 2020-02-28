@@ -1,4 +1,4 @@
-FILES = dbobjects.py    mql7.py py3.py
+FILES = trees.py dbobjects2.py    mql7.py py3.py
 
 build:	$(LIBDIR)
 	cp $(FILES) $(LIBDIR)

@@ -124,21 +124,19 @@
 
     <h3>Files</h3>
     <table class="data">
-    <!--
-    <tr>
-        <th>File name</th><th>Meatadata</th>
-    </tr>
-    -->
-    {% for f in files|sort(attribute="Name") %}
         <tr>
-            <td><a class="left" href="./show_file?fid={{f.FID}}">{{f.Namespace}}:{{f.Name}}</a></td>
-            {% if f.Metadata %}
-                {% for k, v in f.Metadata.items()|sort %}
-                    <td>{{k}}={{v}}</td>
-                {% endfor %}
-            {% endif %}
+            <th>File name</th>{% for a in attr_names %}<th>{{a}}</th>{% endfor %}
         </tr>
-    {% endfor %}
+        {% for f in files|sort(attribute="Name") %}
+            <tr>
+                <td><a class="left" href="./show_file?fid={{f.FID}}">{{f.Namespace}}:{{f.Name}}</a></td>
+                {% if f.Metadata %}
+                    {% for n in attr_names %}
+                        <td>{{f.Metadata[n]}}</td>
+                    {% endfor %}
+                {% endif %}
+            </tr>
+        {% endfor %}
     </table>
 {% endif %}
 

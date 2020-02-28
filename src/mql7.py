@@ -1,12 +1,12 @@
-from dbobjects import DBDataset, DBFile, DBNamedQuery, DBFileSet
+from dbobjects2 import DBDataset, DBFile, DBNamedQuery, DBFileSet
+from trees import Node, pass_node, Ascender, Descender, Visitor
 import json, time
 
 from lark import Lark
 from lark import Transformer, Tree, Token
-from lark.visitors import Interpreter
 import pprint
 
-CMP_OPS = [">" , "<" , ">=" , "<=" , "==" , "=" , "!="]
+CMP_OPS = [">" , "<" , ">=" , "<=" , "==" , "=" , "!=", "~~", "~~*", "!~~", "!~~*"]
 
 MQL_Grammar = """
 ?query:  ("with" param_def_list)? "files"? qualifiable_query
@@ -30,14 +30,14 @@ query_list: query ("," query)*
     
 !data_source: source_spec_list ("with" "children" "recursively"?)? ("having" meta_exp)?
 
-source_spec_list: "from"  source_spec ("," source_spec)* 
+source_spec_list: ("from"|"dataset")  source_spec ("," source_spec)* 
 
 source_spec:    qualified_name
     | dataset_pattern
 
-dataset_pattern:    "matching" STRING (":" STRING)?
+dataset_pattern:    (FNAME ":")? STRING
 
-qualified_name: (FNAME ":")? FNAME
+qualified_name:     (FNAME ":")? FNAME
 
 param_def_list :  param_def ("," param_def)*
 
@@ -67,7 +67,7 @@ FNAME: LETTER ("_"|"-"|"."|LETTER|DIGIT)*
 
 WORD: LETTER ("_"|LETTER|DIGIT)*
 
-CMPOP: ">" | "<" | ">=" | "<=" | "==" | "=" | "!=" | "~" | "!~" 
+CMPOP: ">" | "<" | ">=" | "<=" | "==" | "=" | "!=" | "~~" | "~~*" | "!~~" | "!~~*" 
 
 BOOL: "true"i | "false"i                         
 
@@ -83,181 +83,7 @@ BOOL: "true"i | "false"i
 
 
 
-class Node(object):
-
-    JSON_CLASS = "node"
-
-    def __init__(self, typ, children=[], meta=None):
-        self.T = typ
-        self.M = meta
-        self.C = children[:]
-
-    def __str__(self):
-        return "[Node %s (%d) m:%s]" % (self.T, len(self.C), self.M or "")
-        
-    __repr__ = __str__
-        
-    def line(self):
-        return "%s %s" % (self.T, self.M or "")
-
-    def __add__(self, lst):
-        return Node(self.T, self.C + lst, self.M)
-        
-    def __iadd__(self, addition):
-        if isinstance(addition, Node):
-            self.C.append(addition)
-        elif isinstance(addition, list):
-            self.C += addition
-        else:
-            raise ValueError("Unknown type: %s %s, expected either a Node or a list of Nodes" % (type(addition), addition))
-        return self
-
-    def as_list(self):
-        out = [self.T, self.M]
-        for c in self.C:
-                if isinstance(c, Node):
-                        out.append(c.as_list())
-                else:
-                        out.append(c)
-        return out
-        
-    def _pretty(self, indent=""):
-        out = []
-        out.append("%s%s" % (indent, self.line()))
-        for c in self.C:
-            if isinstance(c, Node):
-                out += c._pretty(indent+"    ")
-            else:
-                out.append("%s%s" % (indent + "    ", repr(c)))
-        return out
-        
-    def pretty(self):
-        return "\n".join(self._pretty())
-        
-    def jsonable(self):
-        d = dict(T=self.T, M=self.M, C=[c.jsonable() if isinstance(c, Node) else c
-                        for c in self.C]
-        )
-        return d
-        
-    def to_json(self):
-        d = self.jsonable()
-        d["///class///"] = self.JSON_CLASS
-        return json.dumps(d)
-
-    @staticmethod
-    def from_jsonable(data):
-        if isinstance(data, dict) and data.get("///class///") == "node":
-            typ = data["T"]
-            if typ == "DataSource":
-                return DataSource.from_jsonable(data)
-            elif typ == "MetaExp":
-                return MetaExp.from_jsonable(data)
-            else:
-                return Node(data["T"],
-                    children = [Node.from_jsonable(c) for c in data.get("C", [])],
-                    meta = data.get("M")
-            )
-        else:
-            return data
-
-    @staticmethod
-    def from_json(text):
-        return Node.from_jsonable(json.loads(text))
-
-def pass_node(method):
-    def decorated(self, *params, **args):
-        return method(self, *params, **args)
-    decorated.__pass_node__ = True
-    return decorated
-
-class Visitor(object):
-
-    def walk(self, node, context=None):
-        if not isinstance(node, Node):
-            return
-        node_type, children = node.T, node.C
-        
-        if hasattr(self, node_type):
-            method = getattr(self, node_type)
-            visit_children = method(node, context)
-        else:
-            visit_children = self.__default(node, context)
-
-        if visit_children:
-            for c in children:
-                self.walk(c, context)
-        return node
-        
-    def __default(self, node, context):
-        return True
-        
-class Descender(object):
-
-    # descends objects top to bottom, possibly replacing them
-
-    def walk(self, node, context):
-        #print("Descender", self.__class__.__name__, ".walk: node:", node.pretty())
-
-        if not isinstance(node, Node):
-            return node
-
-        node_type, children = node.T, node.C
-        
-        if hasattr(self, node_type):
-            method = getattr(self, node_type)
-            #print("Descender", self.__class__.__name__, ".walk: method:", method)
-            #if node.T == "DataSource":
-            #    print("Descender:", self.__class__.__name__, "   input:", node.pretty())
-            new_node = method(node, context)
-            #if new_node.T == "DataSource":
-            #    print("Descender:", self.__class__.__name__, "   new_node:", new_node.pretty())
-                
-        else:
-            new_node = self.__default(node, context)
-            
-            
-        #print("Descender.walk: new_node:", new_node.pretty())
-        return new_node
-
-    def __default(self, node, context):
-        node.C = [self.walk(c, context) for c in node.C]
-        return node
-        
-class Ascender(object):
-
-    def __init__(self):
-        self.Indent = ""
-
-    def walk(self, node):
-        #print("Ascender %s: walk: in: %s" % (self.__class__.__name__, node))
-        if not isinstance(node, Node):
-            return node
-        node_type, children = node.T, node.C
-        #print("Ascender.walk:", node_type, children)
-        assert isinstance(node_type, str)
-        #print("walk: in:", node.pretty())
-        saved = self.Indent 
-        self.Indent += "  "
-        children = [self.walk(c) for c in children]
-        self.Indent = saved
-        #print("walk: children->", children)
-        if hasattr(self, node_type):
-            method = getattr(self, node_type)
-            if hasattr(method, "__pass_node__") and getattr(method, "__pass_node__"):
-                out = method(node)
-            else:
-                out = method(children, node.M)
-        else:
-            out = self.__default(node, children)
-        #print("Ascender %s: walk: out: %s" % (self.__class__.__name__, out))
-        return out
-        
-    def __default(self, node, children):
-        return node
-        return Node(node.T, children=children, meta=node.M)
-        
-class DataSource(Node):
+class _____DataSource(Node):
 
     def __init__(self, patterns, with_children, recursively, having):
         Node.__init__(self, "DataSource")
@@ -297,7 +123,38 @@ class DataSource(Node):
         return DBFileList.from_data_source(self, with_metadata)   
         
 
+class DataSourceMeta(object):
 
+    def __init__(self, patterns, with_children, recursively, having):
+        self.Patterns = patterns
+        self.WithChildren = with_children
+        self.Recursively = recursively
+        self.Having = having
+        self.Wheres = None      # and-list
+        self.WheresDNF = None
+
+    def line(self):
+        return "DataSource(patterns=%s with_children=%s rec=%s having=%s)" % (self.Patterns, self.WithChildren,
+                self.Recursively, self.Having)
+
+    __str__ = line
+                
+    def setHaving(self, having):
+        self.Having = having
+    
+    def addWhere(self, where):
+        assert isinstance(where, Node) and where.T == "meta_or"
+        if self.Wheres is None:
+            self.Wheres = where
+        else:
+            self.Wheres = self.Wheres & where
+        
+    def wheres_dnf(self):
+        return self.WheresDNF
+        
+    def file_list(self, with_metadata):
+        return DBFileList.from_data_source(self, with_metadata)   
+        
 class _MetaRegularizer(Ascender):
     # converts the meta expression into DNF form:
     #
@@ -405,17 +262,28 @@ class _____MetaExp(Node):
         
 class _ParamsApplier(Descender):
 
-    def DataSource(self, node, params):
+    def data_source(self, node, params):
         #print("_ParamsApplier.DataSource: params:", params)
         if params is not None:
             assert isinstance(params, dict)
             default_namespace = params.get("namespace")
             #print("_ParamsApplier.DataSource: default_namespace", default_namespace)
             patterns = []
-            for match, (namespace, name) in node.Patterns:
+            meta = node.M
+            assert isinstance(meta, DataSourceMeta)
+            for match, (namespace, name) in meta.Patterns:
                 namespace = namespace or default_namespace
                 patterns.append((match, (namespace, name)))
-            node.Patterns = patterns
+            meta.Patterns = patterns
+        return node
+        
+    def named_query(self, node, params):
+        #print("_ParamsApplier:named_query %s %s" % (node, params))
+        if params is not None:
+            assert isinstance(params, dict)
+            assert len(node.M) == 2
+            if node.M[0] is None:
+                node.M[0] = params.get("namespace")
         return node
 
     def query(self, node, params):
@@ -429,12 +297,11 @@ class _ParamsApplier(Descender):
             
     def qualified_name(self, node, params):
         if params is not None:
-            assert isinsatnce(params, dict)
+            assert isinstance(params, dict)
             assert len(node.M) == 2
             if node.M[0] is None:
                 node.M[0] = params.get("namespace")
         return node
-
 
 class _Converter(Transformer):
 
@@ -489,9 +356,9 @@ class _Converter(Transformer):
                 recursively = True
             elif a.value == "having":
                 having = args_[i+1]
-        ds = DataSource(spec_list, with_children, recursively, having)
-        #print("data_source:", ds)
-        return ds
+        meta = DataSourceMeta(spec_list, with_children, recursively, having)
+        print("data_source: meta:", meta)
+        return Node("data_source", meta = meta)
         
     def source_spec_list(self, args):
         return Node("source_spec_list", [], meta=[a.M for a in args])
@@ -505,9 +372,9 @@ class _Converter(Transformer):
             
     def dataset_pattern(self, args):
         if len(args) == 1:
-            return Node("dataset_pattern", meta=[None, args[0].value])
+            return Node("dataset_pattern", meta=[None, args[0].value[1:-1]])
         else:
-            return Node("dataset_pattern", meta=[args[0].value, args[1].value])
+            return Node("dataset_pattern", meta=[args[0].value, args[1].value[1:-1]])
         
     def qualified_name(self, args):
         if len(args) == 1:
@@ -517,7 +384,9 @@ class _Converter(Transformer):
         
     def named_query(self, args):
         assert len(args) == 1
-        return Node("named_query", meta = args[0].M)       # value = (namespace, name) - tuple
+        out = Node("named_query", meta = args[0].M)       # value = (namespace, name) - tuple
+        #print("Converter.named_query(%s): returning %s" % (args, out))
+        return out
         
     def exp_list(self, args):
         return args
@@ -593,9 +462,11 @@ class _Converter(Transformer):
     def qualified_name(self, args):
         assert len(args) in (1,2)
         if len(args) == 1:
-            return Node("qualified_name", meta=[None, args[0].value])      # no namespace
+            out = Node("qualified_name", meta=[None, args[0].value])      # no namespace
         else:
-            return Node("qualified_name", meta=[args[0].value, args[1].value])
+            out = Node("qualified_name", meta=[args[0].value, args[1].value])
+        #print("Converter.qualified_name: returning: %s" % (out.pretty(),))
+        return out
 
     def dataset(self, args):
         assert len(args) in (1,2)
@@ -607,10 +478,6 @@ class _Converter(Transformer):
     def filter(self, args):
         assert len(args) == 3
         return Node("filter", args[2], meta = (args[0].value, args[1]))
-        
-    #def metafilter_exp(self, args):
-    #    assert len(args) == 2
-    #    return Node("meta_filter", args)
         
     def filter_params(self, args):
         #print("filter_params:", args)
@@ -675,17 +542,21 @@ class _Assembler(Ascender):
         self.DefaultNamespace = default_namespace
         
     def walk(self, inp):
-        #print("Assembler.walk(): in:", inp.pretty() if isinstance(inp, Node) else repr(inp))
+        print("_Assembler.walk(): in:", inp.pretty() if isinstance(inp, Node) else repr(inp))
         out = Ascender.walk(self, inp)
-        #print("Assembler.walk(): out:", out.pretty() if isinstance(out, Node) else repr(out))
+        print("_Assembler.walk(): out:", out.pretty() if isinstance(out, Node) else repr(out))
         return out
         
     def named_query(self, children, query_name):
+        print("_Assembler.named_query()")
         namespace, name = query_name
         namespace = namespace or self.DefaultNamespace
-        return Query.from_db(self.DB, namespace, name).parse()
+        tree = Query.from_db(self.DB, namespace, name).parse()
+        tree = _ParamsApplier().walk(tree, {"namespace":namespace})
+        #print("_Assembler.named_query: returning:", tree.pretty())
+        return tree
 
-class _ProvenancePusher(Ascender):
+class ____ProvenancePusher(Ascender):
 
     @pass_node
     def parents_of(self, node):
@@ -708,6 +579,23 @@ class _ProvenancePusher(Ascender):
         else:
             return node
 
+class _ProvenancePusher(Descender):
+
+    def parents_of(self, node, _):
+        children = node.C
+        assert len(children) == 1
+        child = children[0]
+        if isinstance(child, Node) and child.T == "union":
+            return Node("union", [self.walk(Node("parents_of", [cc])) for cc in child.C])
+
+    @pass_node
+    def children_of(self, node, _):
+        children = node.C
+        assert len(children) == 1
+        child = children[0]
+        if isinstance(child, Node) and child.T == "union":
+            return Node("union", [self.walk(Node("children_of", [cc])) for cc in child.C])
+
 class _MetaExpPusher(Descender):
 
     def meta_filter(self, node, meta_exp):
@@ -718,9 +606,7 @@ class _MetaExpPusher(Descender):
             meta_exp = meta_exp     # duh
         else:
             meta_exp = Node("meta_and", [meta_exp, node_exp])
-        #print("_MetaExpPusher.meta_filter: node_q:", node_q.pretty())
         out = self.walk(node_q, meta_exp)
-        #print("                          walk()->:", out.pretty())
         return out
         
     def join(self, node, meta_exp):
@@ -737,13 +623,15 @@ class _MetaExpPusher(Descender):
     def filter(self, node, meta_exp):
         return Node("meta_filter", [node, meta_exp])
         
-    def DataSource(self, node, meta_exp):
+    def data_source(self, node, meta_exp):
+        assert isinstance(node.M, DataSourceMeta)
         #print("_MetaExpPusher.DataSource: node:", node.pretty())
-        if meta_exp is not None:    node.addWhere(meta_exp)
+        if meta_exp is not None:    node.M.addWhere(meta_exp)
         #print("_MetaExpPusher.DataSource: out: ", node.pretty())
         return node
         
-class _DNFConverter(Visitor):
+if False:
+  class _DNFConverter(Visitor):
 
     # find all DataSource nodes and apply DNF converter to their Wheres
 
@@ -754,13 +642,25 @@ class _DNFConverter(Visitor):
             exp = _MetaRegularizer().walk(exp)
             node.WheresDNF = _MetaRegularizer._make_DNF_lists(exp)
         return False
+else:        
+  class _DNFConverter(Descender):
+
+    # find all DataSource nodes and apply DNF converter to their Wheres
+
+    def data_source(self, node, _):
+        print("_DNFConverter.DataSource: node:", node, type(node))
+        exp = node.M.Wheres
+        if exp is not None:
+            assert isinstance(exp, Node)
+            exp = _MetaRegularizer().walk(exp)
+            node.M.WheresDNF = _MetaRegularizer._make_DNF_lists(exp)
         
 class _SQLGenerator(Ascender):
 
     @pass_node
-    def DataSource(self, data_source):
+    def data_source(self, node):
         keep_meta = True
-        return Node("SQL", meta=data_source.sql())
+        return Node("SQL", meta=node.M.sql())
             
 
 class _Evaluator(Ascender):
@@ -775,31 +675,20 @@ class _Evaluator(Ascender):
     def parents_of(self, args, meta):
         assert len(args) == 1
         arg = args[0]
+        print("parents_of: arg:", arg)
         return arg.parents(with_metadata=True)
 
     def children_of(self, args, meta):
         assert len(args) == 1
         arg = args[0]
+        print("children_of: arg:", arg)
         return arg.children(with_metadata=True)
             
     @pass_node        
-    def DataSource(self, node):
-        assert isinstance(node, DataSource)
+    def data_source(self, node):
+        assert isinstance(node.M, DataSourceMeta)
         #print("_Evaluator.DataSource: node:", node.pretty())
-        return DBFileSet.from_data_source(self.DB, node, self.WithMeta, self.Limit)
-        
-    def ____dataset(self, args, meta, provenance=None):
-        assert len(args) == 2
-        dataset_name, meta_exp = args
-        namespace, name = dataset_name.M
-        dataset = DBDataset.get(self.DB, namespace, name)
-        keep_meta = meta["keep_meta"]
-        files = dataset.list_files(condition=meta_exp, 
-            relationship="self" if provenance is None else provenance, 
-            with_metadata=keep_meta, limit=self.Limit)
-        #print ("Evaluator.dataset: files:", files)
-        assert isinstance(files, DBFileSet)
-        return files
+        return DBFileSet.from_data_source(self.DB, node.M, self.WithMeta, self.Limit)
         
     def source_spec_list(self, args, meta):
         #print("source_spec_list: args:", args)
@@ -809,11 +698,8 @@ class _Evaluator(Ascender):
         assert len(args) == 1
         return args[0]
         
-    def data_source(self, args, meta):
-        assert len(args) == 1
-        return args[0]
-        
     def union(self, args, meta):
+        #print("Evaluator.union: args:", args)
         return DBFileSet.union(self.DB, args)
         
     def join(self, args, meta):
@@ -837,7 +723,6 @@ class _Evaluator(Ascender):
         out = DBFileSet(self.DB, (f for f in files if self.evaluate_meta_expression(f, meta_exp)))
         #print("Evaluator.meta_filter: out:", out)
         return out
-        
         
     def _eval_meta_bool(self, f, bool_op, parts):
         assert len(parts) > 0
@@ -950,7 +835,7 @@ class Query(object):
             parsed = self.parse()
             #print("Query.assemble(): parsed:", parsed.pretty())
             self.Assembled = _Assembler(db, default_namespace).walk(parsed)
-            #print("Query.assemble: self.Assembled:", self.Assembled)
+            #print("Query.assemble: self.Assembled:", self.Assembled.pretty())
         return self.Assembled
         
     def skip_assembly(self):
@@ -978,15 +863,6 @@ class Query(object):
         #print("generate_sql: canonic: sql:", sql.pretty())
         return sql
 
-    def _____limit_results(self, gen, limit):
-        #print("_limit_results: gen:", gen)
-        for x in gen:
-            if limit > 0:
-                yield x
-            else:
-                break
-            limit -= 1
-
     def run(self, db, filters={}, limit=None, with_meta=True):
         #print("Query.run: DefaultNamespace:", self.DefaultNamespace)
         self.assemble(db, self.DefaultNamespace)
@@ -1002,6 +878,7 @@ class Query(object):
         
     @staticmethod
     def from_db(db, namespace, name):
+        print("Query.fom_db: %s:%s" % (namespace, name))
         return Query(DBNamedQuery.get(db, namespace, name).Source)
 
     def to_db(self, db, namespace, name):

@@ -166,7 +166,7 @@ class DBFile(object):
         self.FID = fid or uuid.uuid4().hex
         self.Namespace = namespace
         self.Name = name
-        self.Metadata = metadata
+        self.Metadata = metadata or {}
         
     def __str__(self):
         return "[DBFile %s %s:%s]" % (self.FID, self.Namespace, self.Name)
@@ -287,12 +287,12 @@ class DBFile(object):
         return meta
         
     def with_metadata(self):
-        if self.Metadata is None:
+        if not self.Metadata:
             self.Metadata = self.fetch_metadata()
         return self
     
     def metadata(self):
-        if self.Metadata is None:
+        if not self.Metadata:
             self.Metadata = self.fetch_metadata()
         return self.Metadata
         
@@ -300,11 +300,11 @@ class DBFile(object):
     def list(db, namespace=None):
         c = db.cursor()
         if namespace is None:
-            c.execute("""select fid, namespace, name from files""")
+            c.execute("""select id, namespace, name from files""")
         else:
-            c.execute("""select fid, namespace, name from files
+            c.execute("""select id, namespace, name from files
                 where namespace=%s""", (namespace,))
-        return DBFileSet.from_shallow(self.DB, fetch_generator(c))
+        return DBFileSet.from_shallow(db, fetch_generator(c))
         
     def has_attribute(self, attrname):
         return attrname in self.Metadata
@@ -361,8 +361,16 @@ class DBFile(object):
     def remove_parent(self, parent, do_commit=True):
         parent_fid = parent if isinstance(parent, str) else parent.FID
         return DBFile(self.DB, fid=parent_fid).remove_child(self, do_commit=do_commit)
-    
         
+    def datasets(self):
+        # list all datasets this file is found in
+        c = self.DB.cursor()
+        c.execute("""
+            select fds.namespace, fds.name
+                from files_datasets fds
+                where fds.file_id = %s
+                order by fds.namespace, fds.name""", (self.FID,))
+        return (DBDataset(self.DB, namespace, name) for namespace, name in fetch_generator(c))
         
 class MetaExpressionDNF(object):
     
@@ -393,7 +401,7 @@ class MetaExpressionDNF(object):
                 if not isinstance(cond, tuple) or len(cond) != 3:
                     raise ValueError("The 'condition' expression must be a tuple of length 3, instead: %s" % (repr(cond),))
                 op, aname, aval = cond
-                if not op in (">" , "<" , ">=" , "<=" , "==" , "=" , "!=", "in"):
+                if not op in (">" , "<" , ">=" , "<=" , "==" , "=" , "!=", "~~", "~~*", "!~~", "!~~*", "in"):
                     raise ValueError("Unrecognized condition operation: %s" % (repr(op,)))                
         
 
@@ -667,7 +675,7 @@ class DBDataset(object):
         datasets = set()
         c = db.cursor()
         for match, (namespace, name) in patterns:
-            #print("list_datasets: match, namespace, name", match, namespace, name)
+            print("list_datasets: match, namespace, name", match, namespace, name)
             if match:
                 c.execute("""select namespace, name from datasets
                             where namespace = %s and name like %s""", (namespace, name))
@@ -675,7 +683,7 @@ class DBDataset(object):
                 c.execute("""select namespace, name from datasets
                             where namespace = %s and name = %s""", (namespace, name))
             for namespace, name in c.fetchall():
-                #print("list_datasets: add", namespace, name)
+                print("list_datasets: add", namespace, name)
                 datasets.add((namespace, name))
         #print("list_datasets: with_children:", with_children)
         if with_children:
