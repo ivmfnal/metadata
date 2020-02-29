@@ -1,6 +1,6 @@
 FILES = Server.py  filters.py rfc2617.py signed_token.py \
-    base.html           dataset.html   login.html  named_queries.html  namespace.html   query.html      user.html \
-    dataset_files.html  datasets.html  mql.html    named_query.html    namespaces.html  show_file.html  users.html
+    base.html dataset_files.html dataset.html datasets.html login.html mql.html named_queries.html named_query.html \
+    namespace.html namespaces.html query.html role.html roles.html show_file.html user.html users.html
 
 
 

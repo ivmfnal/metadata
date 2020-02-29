@@ -535,10 +535,13 @@ class DataHandler(BaseHandler):
         namespace = namespace or self.App.DefaultNamespace
         if query is not None:
             query_text = unquote_plus(query)
+            print("query from URL:", query_text)
         elif "query" in request.POST:
             query_text = request.POST["query"]
+            print("query from POST:", query_text)
         else:
-            query_text = request.body_file.read()
+            query_text = request.body
+            print("query from body:", query_text)
         query_text = to_str(query_text or "")
         t0 = time.time()
         if not query_text:
@@ -559,14 +562,14 @@ class DataHandler(BaseHandler):
         if with_meta:
             data = (
                 { 
-                    "filename":f.Name, "namespace":f.Namespace,
+                    "name":f.Name, "namespace":f.Namespace,
                     "fid":f.FID,
                     "metadata": f.Metadata or {}
                 } for f in results )
         else:
             data = (
                 { 
-                    "filename":f.Name, "namespace":f.Namespace,
+                    "name":f.Name, "namespace":f.Namespace,
                     "fid":f.FID
                 } for f in results )
         return self.json_chunks(data), "text/json"
