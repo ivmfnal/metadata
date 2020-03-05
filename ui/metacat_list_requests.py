@@ -53,22 +53,19 @@ def do_list(config, args):
         query_text = to_str(open(query_file, "r").read())
 
     #print("query_text: %s" % (query_text,))
-    request = Request(url, data=to_bytes(query_text))
-    response = urlopen(request)
+    response = requests.post(url, data=query_text)
     #print(response)
     
-    status = response.getcode()
+    status = response.status_code
     if status/100 != 2:
         print("Error: ", status, "\n", response.read())
         sys.exit(1)
 
-    body = response.read()
-
     if "--json" in opts or "-j" in opts:
-        print(body)
+        print(response.text)
         sys.exit(0)
 
-    out = json.loads(body)
+    out = response.json()
 
     #print("response data:", out)
     

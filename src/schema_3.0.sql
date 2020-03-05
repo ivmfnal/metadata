@@ -29,7 +29,9 @@ create table authenticators
 create table namespaces
 (
 	name	text	primary key,
-	owner	text    references  roles(name)
+	owner	text    references  roles(name),
+    creator             text references users(username),
+    created_timestamp   timestamp with timezone
 );
 
 create table files
@@ -37,7 +39,9 @@ create table files
     id          text    primary key,
     namespace   text 	references namespaces(name),
     name        text,
-    metadata    jsonb
+    metadata    jsonb,
+    creator             text references users(username),
+    created_timestamp   timestamp with timezone
 );
 
 create unique index file_names_unique on files(namespace, name);
@@ -62,7 +66,9 @@ create table datasets
     monotonic		boolean default 'false',
     primary key (namespace, name),
     foreign key (parent_namespace, parent_name) references datasets(namespace, name),
-    metadata    jsonb
+    metadata    jsonb,
+    creator             text references users(username),
+    created_timestamp   timestamp with timezone
 );
 
 create index datasets_meta_index on datasets using gin (metadata);
@@ -83,20 +89,25 @@ create table queries
     name            text,
     parameters      text[],
     source      text,
-    primary key(namespace, name)
+    primary key(namespace, name),
+    creator             text references users(username),
+    created_timestamp   timestamp with timezone
 );
 
 create table parameter_categories
 (
     path        text    primary key,
     owner       text    references  roles(name),
-    restricted  boolean default 'false'
+    restricted  boolean default 'false',
+    creator             text references users(username),
+    created_timestamp   timestamp with timezone
 );
 
 create table parameter_definitions
 (
     category    text    references parameter_categories(path),
     name        text,
+    primary key(category, name),
     type        text
         constraint attribute_types check ( 
             type in ('int','double','text','boolean',
@@ -110,7 +121,8 @@ create table parameter_definitions
     double_max      double precision,
     text_values     text[],
     text_pattern    text,
-    primary key(category, name)
+    creator             text references users(username),
+    created_timestamp   timestamp with timezone
 );
 
     

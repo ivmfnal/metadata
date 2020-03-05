@@ -1,5 +1,6 @@
-import hashlib, json, base64, time, uuid
+import hashlib, json, base64, time, uuid, sys
 from struct import pack, unpack
+from py3 import to_bytes
 
 class crypt(object):
     
@@ -75,7 +76,12 @@ class SignedToken(object):
     #PreferredAlgorithms = [a for a in AcceptedAlgorithms if a in AvailableAlgorithms]
     
     def __init__(self, payload, expiration=None, not_before=None, tid=None):
-        self.TID = tid if tid is not None else uuid.uuid1().hex
+        if tid is not None:
+            assert len(tid) == 32
+            try:    bytes.fromhex(tid)
+            except:
+                assert False, "token ID must be a 32-character hex string"
+        self.TID = tid if tid is not None else uuid.uuid4().hex
         self.Alg = [a for a in self.AcceptedAlgorithms if a in self.AvailableAlgorithms][0]
         self.Payload = payload
         self.IssuedAt = time.time()
@@ -85,7 +91,7 @@ class SignedToken(object):
     def __str__(self):
         return "SignedToken(%s %s iat=%s, nbf=%s, exp=%s, payload=%s)" % (self.TID, self.Alg, self.IssuedAt, self.NotBefore, self.Expiration,
             self.Payload)
-        
+            
     @staticmethod
     def serialize(x):
         # if it is already bytes, just base64 encode it
@@ -105,6 +111,7 @@ class SignedToken(object):
     @staticmethod
     def pack(*words):
         assert len(words) == 3, "Token must consist of 3 words, got %d instead" % (len(words),)
+        #print("pack: words:", words)
         return b".".join([base64.b64encode(w) for w in words])
         
     @staticmethod
@@ -122,6 +129,7 @@ class SignedToken(object):
         return h.digest()
 
     def encode(self, secret, key=None):
+        #print("encode: secret:", secret)
         payload = self.serialize(self.Payload)      # this will be bytes
         header = {"iat":self.IssuedAt, "exp":self.Expiration, "alg":self.Alg, "nbf":self.NotBefore, "tid":self.TID}
         if key is not None:
@@ -184,7 +192,6 @@ class TokenBox(object):
         self.Expiration = 0
         self.Encoded = None
         self.Margin = margin
-        self.Identity = None
         if request_now:
             self.renewIfNeeded()
         
@@ -199,7 +206,6 @@ class TokenBox(object):
                 self.Token = t
                 self.Encoded = encoded
                 self.Expiration = t.Expiration
-                self.Identity = t.Payload.get("identity", "")
             else:
                 raise SignedTokenAuthoriztionError(body)
     

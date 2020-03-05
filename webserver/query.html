@@ -26,7 +26,7 @@
 		</tr>
         <tr><td colspan=3>&nbsp;</td></tr>
         <tr>
-            <th>Default namespace:</th><td><input type="text" name="namespace"
+            <th>Default namespace:</th><td><input type="text" name="default_namespace"
                     value="{{namespace or 'test'}}"/></td>
             <td></td>
         </tr>
@@ -39,16 +39,20 @@
             <td></td>
 
         </tr>
-        {#
-		<tr>
-			<th>Save as:</th><td>namespace:&nbsp<input type="text" name="namespace" value="{{namespace}}"/>&nbsp;&nbsp
-            {{- '' -}}
-            name:&nbsp<input type="text" name="name"/>&nbsp;&nbsp
-            {{- '' -}}
-            <input type="submit" name="action" value="save"/></td>
-            <td></td>
-		</tr>
-        #}
+        {% if allow_save_query %}
+		    <tr>
+			    <th>Save query as:</th><td>Namespace:&nbsp;<select name="save_namespace">
+                    {%- for ns in namespaces %}
+                        <option value="{{ns.Name}}" {{'selected="selected"' if ns.Name == namespace }}>{{ns.Name}}</option>
+                    {% endfor -%}
+                    </select>&nbsp;&nbsp;
+                {{- '' -}}
+                Name:&nbsp<input type="text" name="save_name"/>&nbsp;&nbsp
+                {{- '' -}}
+                <input type="submit" name="action" value="save"/></td>
+                <td></td>
+		    </tr>
+        {% endif %}
         <tr><td colspan=3>&nbsp;</td></tr>
         <tr>
             <th>Include metadata:</th>
@@ -78,7 +82,7 @@
     <div class=headline>Query results</div>
     <p>Runtime: {{"%.3f"|format(runtime)}} seconds<br/>
         Files: {{files|length}} (results in GUI are always limited to 1000 files)<br/>
-        JSON:&nbsp;<a href="{{GLOBAL_AppTopPath}}/data/query?with_meta=ye&query={{url_query}}">with</a> 
+        JSON:&nbsp;<a href="{{GLOBAL_AppTopPath}}/data/query?with_meta=yes&query={{url_query}}">with</a> 
         <a href="{{GLOBAL_AppTopPath}}/data/query?with_meta=no&query={{url_query}}">without</a> metadata
     </p>
 
@@ -127,6 +131,7 @@
     {% endif %}
 
     <h3>Files</h3>
+    {# ------
     <table class="data">
         <tr>
             <th>File name</th>{% for a in attr_names %}<th>{{a}}</th>{% endfor %}
@@ -139,6 +144,27 @@
                         <td>{{f.Metadata[n]}}</td>
                     {% endfor %}
                 {% endif %}
+            </tr>
+        {% endfor %}
+    </table>
+    -------- #}
+    
+    <table class="data">
+        <tr>
+            <th>File name</th><th>Metadata</th>
+        </tr>
+        {% for f in files|sort(attribute="Name") %}
+            <tr>
+                <td><a class="left" href="./show_file?fid={{f.FID}}">{{f.Namespace}}:{{f.Name}}</a></td>
+                <td>
+                    {% if f.Metadata %}
+                        {% for n in attr_names %}
+                            {% if f.Metadata[n] is not none %}
+                                {{n}}:&nbsp;{{f.Metadata[n]}}<br/>
+                            {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                </td>
             </tr>
         {% endfor %}
     </table>

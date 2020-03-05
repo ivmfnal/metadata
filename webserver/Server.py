@@ -26,13 +26,6 @@ class BaseHandler(WPHandler):
         if buf:
             yield "".join(buf)
             
-
-
-class GUIHandler(BaseHandler):
-
-    def jinja_globals(self):
-        return {"GLOBAL_User":self.authenticated_user()}
-        
     def authenticated_user(self):
         username = self.App.user_from_request(self.Request)
         if not username:    return None
@@ -45,6 +38,11 @@ class GUIHandler(BaseHandler):
         admin = DBRole.get(db, "admin")
         return user in admin
 
+class GUIHandler(BaseHandler):
+
+    def jinja_globals(self):
+        return {"GLOBAL_User":self.authenticated_user()}
+        
     def index(self, request, relpath, **args):
         return self.redirect("./datasets")
         
@@ -82,7 +80,7 @@ class GUIHandler(BaseHandler):
         
         return self.render_to_response("mql.html", namespace = namespace, show_results = results,
             query_text = query_text or "", parsed = parsed, assembled = assembled, optimized = optimized,
-		    with_sql = with_sql)
+                    with_sql = with_sql)
 
     def show_file(self, request, relpath, fid=None, **args):
         db = self.App.connect()
@@ -108,9 +106,11 @@ class GUIHandler(BaseHandler):
                 clist.append((v, c))
             out.append((name, sorted(clist, key=lambda vc: (-vc[1], vc[0]))))
         return sorted(out)
-        
+    
     def query(self, request, relpath, query=None, namespace=None, **args):
-        namespace = namespace or request.POST.get("namespace") or self.App.DefaultNamespace
+            
+            
+        namespace = namespace or request.POST.get("default_namespace") or self.App.DefaultNamespace
         #print("namespace:", namespace)
         if query is not None:
             query_text = unquote_plus(query)
@@ -130,6 +130,8 @@ class GUIHandler(BaseHandler):
         
         db = self.App.connect()
         #print("query: method:", request.method)
+        error = None
+        message = None
         if request.method == "POST":
                 if request.POST["action"] == "run":
                         with_meta = request.POST.get("with_meta", "off") == "on"
@@ -156,19 +158,24 @@ class GUIHandler(BaseHandler):
                         #print("query: results:", len(files))
                         runtime = time.time() - t0
                 elif request.POST["action"] == "load":
-                        with self.App.connect() as db:
-                            namespace, name = request.POST["query_to_load"].split(":",1)
-                            query_text = DBNamedQuery.get(db, namespace, name).Source
+                        namespace, name = request.POST["query_to_load"].split(":",1)
+                        query_text = DBNamedQuery.get(db, namespace, name).Source
+                elif request.POST["action"] == "save" and query_text:
+                    name = request.POST["save_name"]
+                    namespace = request.POST["save_namespace"]
+                    saved = DBNamedQuery(db, name=name, namespace=namespace, source=query_text).save()
+                    message = "Query saved as %s:%s" % (namespace, name)
                             
         user = self.authenticated_user()
         namespaces = None
-        error = None
-        message = None
         if True:
-            queries = list(DBNamedQuery.list(db, namespace))
+            #print("Server.query: namespace:", namespace)
+            queries = list(DBNamedQuery.list(db))
             queries = sorted(queries, key=lambda q: (q.Namespace, q.Name))
             if user:
-                namespaces = DBNamespace.list(db, owned_by_user=user)
+                namespaces = list(DBNamespace.list(db, owned_by_user=user))
+                
+                #print("query: namespaces:", [ns.Name for ns in namespaces])
                 
             if files is not None and "save_as_dataset" in request.POST:
                 if user is None:
@@ -207,11 +214,11 @@ class GUIHandler(BaseHandler):
                     for n in f.Metadata.keys():
                         attr_names.add(n)
         #print("Server.query: file list generated")
-                
         resp = self.render_to_response("query.html", 
             attr_names = sorted(list(attr_names)),
             message = message, error = error,
             allow_save_as_dataset = user is not None, namespaces = namespaces,
+            allow_save_query = user is not None and namespaces,
             named_queries = queries,
             query=query_text, url_query=url_query,
             show_files=files is not None, files=files, 
@@ -439,24 +446,25 @@ class DataHandler(BaseHandler):
     def json_chunks(self, lst, chunk=100000):
         return self.text_chunks(self.json_generator(lst), chunk)
 
-    def datasets(self, request, relpath, **args):
+    def datasets(self, request, relpath, with_file_counts="no", **args):
+        with_file_counts = with_file_counts == "yes"
         db = self.App.connect()
         datasets = DBDataset.list(db)
-        return self.json_chunks((
-            { "name":ds.Name, "namespace":ds.Namespace } for ds in datasets))
+        out = []
+        for ds in datasets:
+            dct = ds.to_jsonable()
+            if with_file_counts:
+                dct["file_count"] = ds.nfiles
+            out.append(dct)
+        return json.dumps(out), "text/json"
 
-    def dataset(self, request, relpath, **args):
-        method = request.method
-        if method == "POST":
-            return self.create_dataset(request, relpath, **args)
-        elif method == "PUT":
-            return self.update_dataset(request, relpath, **args)
-
-        # assume GET
+    def dataset(self, request, relpath, dataset=None, **args):
         db = self.App.connect()
-        namespace, name = relpath.split(":", 1)
+        namespace, name = dataset.split(":", 1)
         dataset = DBDataset.get(db, namespace, name)
-        return dataset.to_json(), "text/json"
+        dct = dataset.to_jsonable()
+        dct["file_count"] = dataset.nfiles
+        return json.dumps(dct), "text/json"
             
     def dataset_count(self, request, relpath, **args):
         namespace, name = relpath.split(":", 1)
@@ -467,36 +475,142 @@ class DataHandler(BaseHandler):
         } 
         
             
-    def create_dataset(self, request, relpath, **args):
+    def create_dataset(self, request, relpath, dataset=None, parent=None, **args):
+        user = self.authenticated_user()
+        if user is None:
+            return 401
         db = self.App.connect()
-        namespace, name = relpath.split(":", 1)
-        dataset = DBDataset(namespace, name).save()
+        namespace, name = dataset.split(":",1)
+        namespace = DBNamespace.get(db, namespace)
+        if not user in namespace.Owner:
+            return 403
+        if DBDataset.get(db, namespace, name) is not None:
+            return "Already exists", 409
+        parent_ds = None
+        if parent:
+                parent_namespace, parent_name = parent.split(":",1)
+                parent_ns = DBNamespace.get(db, parent_namespace)
+                if not user in parent_ns.Owner:
+                        return 403
+                parent_ds = DBDataset.get(db, parent_namespace, parent_name)
+                if parent_ds is None:
+                        return "Parent dataset not found", 404
+                dataset = DBDataset(db, namespace, name, 
+                        parent_namespace=parent_namespace, parent_name=parent_name).save()
+        else:
+                dataset = DBDataset(db, namespace, name).save()
+        try:    out = dataset.to_json(), "text/json" 
+        except Exception as e:
+            print (e)
+         
         return dataset.to_json(), "text/json"  
             
-    def file(self, request, relpath, **args):
-        method = request.method
-        if method == "POST":
-            return self.create_file(request, relpath, **args)
-        elif method == "PUT":
-            return self.update_file(request, relpath, **args)
-        else:
-            return self.get_file(request, relpath, **args)
+    def create_files(self, request, relpath, namespace=None, dataset=None, **args):
+        # request body: JSON with list:
+        #
+        # [
+        #       {       
+        #               name: name,
+        #               parents:        [fid,...],              // optional
+        #               fid: fid,               // optional
+        #               metadata: { ... }       // optional
+        #       },...
+        # ]
+        #               
+        user = self.authenticated_user()
+        if user is None:
+            return 401
+        file_list = json.loads(request.body) if request.body else []
+        if not file_list:
+                return "Empty file list", 400
 
-    def create_file(self, request, relpath, fid=None, parent=None, **args):
-        # method: POST, URI: .../file/dataset:name/namespace:name?fid=fid&parent=fid
-        # request body = metadata in JSON format
-        dataset_spec, file_spec = relpath.split("/",1)
-        dataset_namespace, dataset_name = dataset_spec.split(":",1)
-        file_namespace, file_name = file_spec.split(":",1)
-        metadata = json.loads(request.body) if request.body else None
         db = self.App.connect()
+        dataset_namespace, dataset_name = dataset.split(":", 1)
+        dsns = DBNamespace.get(db, dataset_namespace)
+        if dsns is None:
+            return "Dataset namespace not found", 404
+        if not user in dsns.Owner:
+            return 403
+
+        ns = DBNamespace.get(db, namespace)
+        if ns is None:
+            return "Namespace not found", 404
+        if not user in ns.Owner:
+            return 403
+            
         ds = DBDataset.get(db, dataset_namespace, dataset_name)
-        f = DBFile(db, file_namespace, file_name, fid=fid).save(do_commit=False)
-        if metadata:
-                f.save_metadata(metadata, do_commit=False)
+        if ds is None:
+            return "Dataset not found", 404
+
+        out = []
+
+        for file_item in file_list:
+                name = file_item["name"]
+                fid = file_item.get("fid") or None
+                parents = file_item.get("parents") or None
+                meta = file_item.get("metadata") or {}
+                f = DBFile(db, name=name, namespace=namespace, fid=fid, metadata=meta).save(do_commit=False)
+                if parents:
+                        f.add_parents(parents, do_commit=False)
+                out.append(dict(
+                        name=name,
+                        namespace=namespace,
+                        fid=f.FID
+                ))
+        db.cursor().execute("commit")
+        return json.dumps(out), "text/json"
+
+    def create_file(self, request, relpath, fid=None, 
+                parent_fid=None, parent=None, 
+                file=None, 
+                dataset=None, **args):
+        # method: POST, URI: .../file?fid=fid&parent=fid
+        # request body = metadata in JSON format
+        user = self.authenticated_user()
+        if user is None:
+            return 401
+        metadata = json.loads(request.body) if request.body else {}
+        if None in (dataset, file):
+            return "dataset and file  must be specified", 400
+
+        dataset_namespace, dataset_name = dataset.split(":", 1)
+        namespace, name = file.split(":", 1)
+            
+        db = self.App.connect()
+        
+        ns = DBNamespace.get(db, namespace)
+        if ns is None:
+            return "Namespace not found", 404
+            
+        dsns = DBNamespace.get(db, dataset_namespace)
+        if dsns is None:
+            return "Dataset namespace not found", 404
+
+        if not (user in ns.Owner and user in dsns.Owner):
+            return 403
+            
+        ds = DBDataset.get(db, dataset_namespace, dataset_name)
+        if ds is None:
+            return "Dataset not found", 404
+            
+        if DBFile.get(db, namespace=namespace, name=name) is not None or (fid is not None and DBFile.get(db, fid=fid) is not None):
+            return "File with same name and/or file id already exists", 409
+
+        parent_f = None
         if parent is not None:
-                parent = DBFile.get(db, fid=parent)
-                parent.add_child(f, do_commit=False)
+                parent_namespace, parent_name = parent.split(":", 1)
+                parent_f = DBFile.get(db, namespace=parent_namespace, name=parent_name)
+                if parent_f is None:
+                    return "Parent not found", 404
+
+        if parent_fid is not None:
+                parent_f = DBFile.get(db, fid=parent_fid)
+                if parent_f is None:
+                    return "Parent not found", 404
+        
+        f = DBFile(db, namespace=namespace, name=name, fid=fid, metadata=metadata).save(do_commit=False)
+        if parent_f is not None:
+                parent_f.add_child(f, do_commit=False)
         ds.add_file(f, do_commit=True)
         return json.dumps({"fid":f.FID}) + "\n", "text/json"
             
@@ -516,32 +630,35 @@ class DataHandler(BaseHandler):
         f.save_metadata(metadata)
         return json.dumps({"fid":f.FID}) + "\n", "text/json"
             
-    def get_file(self, request, relpath, fid=None, with_metadata="yes", **args):
-        if (not relpath) == (not fid):
-                return 403, "Either namespace:name or FID must be specified, but not both"
+    def file(self, request, relpath, file=None, fid=None, with_metadata="yes", with_relations="yes", **args):
         namespace = name = None
         if relpath:
                 namespace, name = relpath.split(":",1)
+        elif file:
+                namespace, name = file.split(":", 1)
+        elif fid is None:
+                return 403, "Either file=namespace:name or fid=FID must be specified"
+                
         with_metadata = with_metadata == "yes"
         db = self.App.connect()
         if fid:
             f = DBFile.get(db, fid = fid)
         else:
             f = DBFile.get(db, namespace=namespace, name=name)
-        return f.to_json(with_metadata=with_metadata), "text/json"
+        return f.to_json(with_metadata=with_metadata, with_relations=True), "text/json"
             
     def query(self, request, relpath, query=None, namespace=None, with_meta="no", **args):
         with_meta = with_meta == "yes"
         namespace = namespace or self.App.DefaultNamespace
         if query is not None:
             query_text = unquote_plus(query)
-            print("query from URL:", query_text)
+            #print("query from URL:", query_text)
         elif "query" in request.POST:
             query_text = request.POST["query"]
-            print("query from POST:", query_text)
+            #print("query from POST:", query_text)
         else:
             query_text = request.body
-            print("query from body:", query_text)
+            #print("query from body:", query_text)
         query_text = to_str(query_text or "")
         t0 = time.time()
         if not query_text:
@@ -618,6 +735,9 @@ class AuthHandler(WPHandler):
         #print("authenticated")
         return self.App.response_with_auth_cookie(username, redirect)
 
+    def verify(self, request, relpath, **args):
+        username = self.App.user_from_request(request)
+        return "OK" if username else ("Token verification error", 403)
 
 class RootHandler(WPHandler):
     
@@ -650,8 +770,10 @@ class App(WPApp):
         # Authentication/authtorization
         #        
         self.Users = cfg["users"]       #   { username: { "passwrord":password }, ...}
-        self.TokenSecret = secrets.token_bytes(128)     # used to sign tokens
-        self.Tokens = {}		# { token id -> token object }
+        self.TokenSecret = cfg.get("secret") 
+        if self.TokenSecret is None:    self.TokenSecret = secrets.token_bytes(128)     # used to sign tokens
+        else:                           self.TokenSecret = bytes.fromhex(self.TokenSecret)
+        self.Tokens = {}                # { token id -> token object }
 
     def connect(self):
         conn = self.DB.connect()
@@ -662,15 +784,13 @@ class App(WPApp):
         # realm is ignored for now
         return self.Users.get(username).get("password")
 
-    TokenExpiration = 24*3600*3600
+    TokenExpiration = 24*3600*7
 
     def user_from_request(self, request):
-        #print("user_from_request: cookies:", request.cookies)
-        encoded = request.cookies.get("auth_token")
-        #print("user_from_request: encoded:", encoded)
-        if not encoded:	return None
-        try:	token = SignedToken.decode(encoded, self.TokenSecret)
-        except:	return None		# invalid token
+        encoded = request.cookies.get("auth_token") or request.headers.get("X-Authentication-Token")
+        if not encoded: return None
+        try:    token = SignedToken.decode(encoded, self.TokenSecret, verify_times=True)
+        except: return None             # invalid token
         return token.Payload.get("user")
 
     def response_with_auth_cookie(self, user, redirect):
@@ -681,6 +801,7 @@ class App(WPApp):
         else:
             resp = Response(status=200, content_type="text/plain")
         #print ("response:", resp, "  reditrect=", redirect)
+        resp.headers["X-Authentication-Token"] = to_str(token)
         resp.set_cookie("auth_token", token, max_age = int(self.TokenExpiration))
         return resp
 
@@ -689,9 +810,17 @@ class App(WPApp):
             resp = Response(status=302, headers={"Location": redirect})
         else:
             resp = Response(status=200, content_type="text/plain")
-        try:	resp.set_cookie("auth_token", "-", max_age=100)
-        except:	pass
+        try:    resp.set_cookie("auth_token", "-", max_age=100)
+        except: pass
         return resp
+
+    def verify_token(self, encoded):
+        try:
+            token = SignedToken.decode(encoded, self.TokenSecret, verify_times=True)
+        except Exception as e:
+            return False, e
+        return True, None
+        
 
     def filters(self):
         return self.Filters

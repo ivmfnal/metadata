@@ -22,7 +22,7 @@ MQL_Grammar = """
     |   "children" "(" query ")"                    -> children_of
     |   query "-" query                             -> subtract
     |   "(" query ")"                               -> s_
-    |   "filter" qualified_name "(" constant_list? ")" "(" query_list ")"       -> filter
+    |   "filter" FNAME "(" constant_list ")" "(" query_list ")"       -> filter
     |   "query" qualified_name                      -> named_query
     |   data_source
     
@@ -54,7 +54,7 @@ term_meta:  ANAME CMPOP constant                    -> cmp_op
     | "(" meta_exp ")"                              -> s_
     | "!" term_meta                                 -> meta_not
     
-constant_list:    constant ("," constant)*                    
+constant_list:    constant? ("," constant)*                    
 
 constant : SIGNED_FLOAT                             -> float_constant                      
     | STRING                                        -> string_constant
@@ -322,7 +322,7 @@ class _Converter(Transformer):
             return self._apply_params(query, params)
         else:
             return args[0]
-        
+            
     def s_(self, args):
         assert len(args) == 1
         return args[0]
@@ -343,6 +343,9 @@ class _Converter(Transformer):
             s = s[1:-1]
         return s
         
+    def constant_list(self, args):
+        return args
+        
     def data_source(self, args):
         spec_list = args[0].M
         with_children = False
@@ -357,7 +360,7 @@ class _Converter(Transformer):
             elif a.value == "having":
                 having = args_[i+1]
         meta = DataSourceMeta(spec_list, with_children, recursively, having)
-        print("data_source: meta:", meta)
+        #print("data_source: meta:", meta)
         return Node("data_source", meta = meta)
         
     def source_spec_list(self, args):
@@ -474,10 +477,12 @@ class _Converter(Transformer):
             return Node("dataset", [args[0], None])       # dataset without meta filter
         else:
             return Node("dataset", [args[0], args[1]])
-        
+            
     def filter(self, args):
         assert len(args) == 3
-        return Node("filter", args[2], meta = (args[0].value, args[1]))
+        print("filter: args:", type(args[0]), args[0], type(args[1]), args[1], type(args[2]), args[2])
+        query_list = args[2].C
+        return Node("filter", query_list, meta = (args[0].value, args[1]))
         
     def filter_params(self, args):
         #print("filter_params:", args)
@@ -542,13 +547,13 @@ class _Assembler(Ascender):
         self.DefaultNamespace = default_namespace
         
     def walk(self, inp):
-        print("_Assembler.walk(): in:", inp.pretty() if isinstance(inp, Node) else repr(inp))
+        #print("_Assembler.walk(): in:", inp.pretty() if isinstance(inp, Node) else repr(inp))
         out = Ascender.walk(self, inp)
-        print("_Assembler.walk(): out:", out.pretty() if isinstance(out, Node) else repr(out))
+        #print("_Assembler.walk(): out:", out.pretty() if isinstance(out, Node) else repr(out))
         return out
         
     def named_query(self, children, query_name):
-        print("_Assembler.named_query()")
+        #print("_Assembler.named_query()")
         namespace, name = query_name
         namespace = namespace or self.DefaultNamespace
         tree = Query.from_db(self.DB, namespace, name).parse()
@@ -605,7 +610,7 @@ class _MetaExpPusher(Descender):
         elif node_exp is None:
             meta_exp = meta_exp     # duh
         else:
-            meta_exp = Node("meta_and", [meta_exp, node_exp])
+            meta_exp = Node("meta_or", [Node("meta_and", [meta_exp, node_exp])])
         out = self.walk(node_q, meta_exp)
         return out
         
@@ -620,12 +625,8 @@ class _MetaExpPusher(Descender):
         left, right = node.C
         return Node(t, [self.walk(left, meta_exp), right])
         
-    def filter(self, node, meta_exp):
-        return Node("meta_filter", [node, meta_exp])
-        
     def data_source(self, node, meta_exp):
         assert isinstance(node.M, DataSourceMeta)
-        #print("_MetaExpPusher.DataSource: node:", node.pretty())
         if meta_exp is not None:    node.M.addWhere(meta_exp)
         #print("_MetaExpPusher.DataSource: out: ", node.pretty())
         return node
@@ -648,7 +649,7 @@ else:
     # find all DataSource nodes and apply DNF converter to their Wheres
 
     def data_source(self, node, _):
-        print("_DNFConverter.DataSource: node:", node, type(node))
+        #print("_DNFConverter.DataSource: node:", node, type(node))
         exp = node.M.Wheres
         if exp is not None:
             assert isinstance(exp, Node)
@@ -675,13 +676,13 @@ class _Evaluator(Ascender):
     def parents_of(self, args, meta):
         assert len(args) == 1
         arg = args[0]
-        print("parents_of: arg:", arg)
+        #print("parents_of: arg:", arg)
         return arg.parents(with_metadata=True)
 
     def children_of(self, args, meta):
         assert len(args) == 1
         arg = args[0]
-        print("children_of: arg:", arg)
+        #print("children_of: arg:", arg)
         return arg.children(with_metadata=True)
             
     @pass_node        
@@ -713,27 +714,30 @@ class _Evaluator(Ascender):
     def filter(self, args, meta):
         name, params = meta
         inputs = args
-        #print("Evaluator.filter: inputs:", inputs)
+        print("Evaluator.filter: inputs:", inputs)
         filter_function = self.Filters[name]
         return DBFileSet(self.DB, filter_function(inputs, params))
         
     def meta_filter(self, args, meta):
         assert len(args) == 2
+        #print("meta_filter: args:", args)
         files, meta_exp = args
-        out = DBFileSet(self.DB, (f for f in files if self.evaluate_meta_expression(f, meta_exp)))
-        #print("Evaluator.meta_filter: out:", out)
-        return out
+        print("Evaluator.meta_filter: files:", files, "   meta_exp:", meta_exp)
+        if meta_exp is not None:
+            return DBFileSet(self.DB, (f for f in files if self.evaluate_meta_expression(f, meta_exp)))
+        else:
+            return files
         
     def _eval_meta_bool(self, f, bool_op, parts):
         assert len(parts) > 0
         p0 = parts[0]
         rest = parts[1:]
         ok = self.evaluate_meta_expression(f, p0)
-        if bool_op == "and":
+        if bool_op in ("and", "meta_and"):
             if len(rest) and ok:
                 ok = self._eval_meta_bool(f, bool_op, rest)
             return ok
-        elif bool_op == "or":
+        elif bool_op in ("or", "meta_or"):
             if len(rest) and not ok:
                 ok = self._eval_meta_bool(f, bool_op, rest)
             return ok
@@ -746,7 +750,12 @@ class _Evaluator(Ascender):
     BOOL_OPS = ("and", "or", "not")
 
     def evaluate_meta_expression(self, f, meta_expression):
+        #print("evaluate_meta_expression: meta_expression:", meta_expression.pretty())
         op, args = meta_expression.T, meta_expression.C
+        if op in ("meta_and", "meta_or") and len(args) == 1:
+            return self.evaluate_meta_expression(f, args[0])
+        if op == "meta_and":    op = "and"
+        if op == "meta_or":     op = "or"
         if op in self.BOOL_OPS:
             return self._eval_meta_bool(f, op, args)
         else:
@@ -847,13 +856,13 @@ class Query(object):
         #print("Query.optimize: entry")
         assert self.Assembled is not None
         if self.Optimized is None:
-            #print("optimize: assembled:", self.Assembled.pretty())
+            print("Query.optimize: assembled:", self.Assembled.pretty())
             optimized = _ProvenancePusher().walk(self.Assembled)
-            #print("optimize: after _ProvenancePusher:", optimized.pretty())
+            print("Query.optimize: after _ProvenancePusher:", optimized.pretty())
             optimized = _MetaExpPusher().walk(optimized, None)
-            #print("Query.optimize: optimized:", optimized.pretty())
+            print("Query.optimize: after _MetaExpPusher:", optimized.pretty())
             optimized = _DNFConverter().walk(optimized, None)
-            #print("Query.optimize: DNF converted:", optimized.pretty())
+            print("Query.optimize: after DNF converter:", optimized.pretty())
             self.Optimized = optimized
         return self.Optimized
 
@@ -868,6 +877,7 @@ class Query(object):
         self.assemble(db, self.DefaultNamespace)
         #print("Query.run: assemled:", self.Assembled.pretty())
         optimized = self.optimize()
+        print("Query.run: optimized:", optimized.pretty())
         out = _Evaluator(db, filters, with_meta, limit).walk(optimized)
         #print ("run: out:", out)
         return out
@@ -878,7 +888,7 @@ class Query(object):
         
     @staticmethod
     def from_db(db, namespace, name):
-        print("Query.fom_db: %s:%s" % (namespace, name))
+        #print("Query.fom_db: %s:%s" % (namespace, name))
         return Query(DBNamedQuery.get(db, namespace, name).Source)
 
     def to_db(self, db, namespace, name):

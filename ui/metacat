@@ -30,6 +30,12 @@ cmd, args = args[0], args[1:]
 if cmd == "list":
     from metacat_list import do_list
     do_list(config, args)
+if cmd == "auth":
+    from metacat_auth import do_auth
+    do_auth(config, args)
+if cmd == "dataset":
+    from metacat_dataset import do_dataset
+    do_dataset(config, args)
 else:
     print(Usage)
     sys.exit(2)

@@ -148,6 +148,8 @@ class DBFile(object):
         self.Namespace = namespace
         self.Name = name
         self.Metadata = metadata or {}
+        self.Creator = None
+        self.CreatedTimestamp = None
         
     def __str__(self):
         return "[DBFile %s %s:%s]" % (self.FID, self.Namespace, self.Name)
@@ -242,7 +244,7 @@ class DBFile(object):
     def get_attribute(self, attrname, default=None):
         return self.Metadata.get(attrname, default)
 
-    def to_jsonable(self, with_metadata = False):
+    def to_jsonable(self, with_metadata = False, with_relations=False):
         data = dict(
             fid = self.FID,
             namespace = self.Namespace,
@@ -252,10 +254,13 @@ class DBFile(object):
         )
         if with_metadata:
             data["metadata"] = self.metadata()
+        if with_relations:
+            data["parents"] = [p.FID for p in self.parents()]
+            data["children"] = [c.FID for c in self.children()]
         return data
 
-    def to_json(self, with_metadata = False):
-        return json.dumps(self.to_jsonable(with_metadata=with_metadata))
+    def to_json(self, with_metadata = False, with_relations=False):
+        return json.dumps(self.to_jsonable(with_metadata=with_metadata, with_relations=with_relations))
         
     def children(self, with_metadata = False):
         return DBFileSet(self.DB, [self]).children(with_metadata)
@@ -271,6 +276,17 @@ class DBFile(object):
                 values(%s, %s)        
                 on conflict(parent_id, child_id) do nothing;
             """, (self.FID, child_fid)
+        )
+        if do_commit:   c.execute("commit")
+        
+    def add_parents(self, parents, do_commit=True):
+        parent_fids = [(p if isinstance(p, str) else p.FID,) for p in parents]
+        c = self.DB.cursor()
+        c.executemany(f"""
+            insert into parent_child(parent_id, child_id)
+                values(%s, '{self.FID}')        
+                on conflict(parent_id, child_id) do nothing;
+            """, parent_fids
         )
         if do_commit:   c.execute("commit")
         
@@ -377,8 +393,10 @@ class MetaExpressionDNF(object):
         parts = []
         for op, aname, aval in and_term:
             if op in ("=", "=="):
-                val = '"%s"' % (aval,) if isinstance(aval, str) else str(aval)
-                contains_items.append('"%s":%s' % (aname, val))
+                v = str(aval)
+                if isinstance(aval, str):       v = '"%s"' % (aval,)
+                elif isinstance(aval, bool):    v = "true" if aval else "false"
+                contains_items.append('"%s":%s' % (aname, v))
             elif op == "in":
                 val = '"%s"' % (aval,) if isinstance(aval, str) else str(aval)
                 contains_items.append('"%s":[%s]' % (aname, val))
@@ -411,16 +429,20 @@ class DBDataset(object):
         self.SQL = None
         self.Frozen = frozen
         self.Monotonic = monotonic
+        self.Creator = None
+        self.CreatedTimestamp = None
         
     def save(self, do_commit = True):
         c = self.DB.cursor()
+        namespace = self.Namespace.Name if isinstance(self.Namespace, DBNamespace) else self.Namespace
+        parent_namespace = self.ParentNamespace.Name if isinstance(self.ParentNamespace, DBNamespace) else self.ParentNamespace
         c.execute("""
             insert into datasets(namespace, name, parent_namespace, parent_name, frozen, monotonic) values(%s, %s, %s, %s, %s, %s)
                 on conflict(namespace, name) 
                     do update set parent_namespace=%s, parent_name=%s, frozen=%s, monotonic=%s
             """,
-            (self.Namespace, self.Name, self.ParentNamespace, self.ParentName, self.Frozen, self.Monotonic, 
-                    self.ParentNamespace, self.ParentName, self.Frozen, self.Monotonic))
+            (namespace, self.Name, parent_namespace, self.ParentName, self.Frozen, self.Monotonic, 
+                    parent_namespace, self.ParentName, self.Frozen, self.Monotonic))
         if do_commit:   c.execute("commit")
         return self
             
@@ -446,6 +468,7 @@ class DBDataset(object):
     @staticmethod
     def get(db, namespace, name):
         c = db.cursor()
+        namespace = namespace.Name if isinstance(namespace, DBNamespace) else namespace
         #print(namespace, name)
         c.execute("""select parent_namespace, parent_name, frozen, monotonic
                         from datasets
@@ -461,6 +484,8 @@ class DBDataset(object):
         
     @staticmethod
     def list(db, namespace=None, parent_namespace=None, parent_name=None):
+        namespace = namespace.Name if isinstance(namespace, DBNamespace) else namespace
+        parent_namespace = parent_namespace.Name if isinstance(parent_namespace, DBNamespace) else parent_namespace
         wheres = []
         if namespace is not None:
             wheres.append("namespace = '%s'" % (namespace,))
@@ -517,9 +542,9 @@ class DBDataset(object):
     
     def to_jsonable(self):
         return dict(
-            namespace = self.Namespace,
+            namespace = self.Namespace.Name if isinstance(self.Namespace, DBNamespace) else self.Namespace,
             name = self.Name,
-            parent_namespace = self.ParentNamespace,
+            parent_namespace = self.ParentNamespace.Name if isinstance(self.ParentNamespace, DBNamespace) else self.ParentNamespace,
             parent_name = self.ParentName
         )
     
@@ -575,6 +600,8 @@ class DBNamedQuery(object):
         self.Name = name
         self.Source = source
         self.Parameters = parameters
+        self.Creator = None
+        self.CreatedTimestamp = None
         
     def save(self):
         self.DB.cursor().execute("""
@@ -679,6 +706,8 @@ class DBNamespace(object):
             owner = DBRole.get(db, owner)
         self.Owner = owner
         self.DB = db
+        self.Creator = None
+        self.CreatedTimestamp = None
         
     def save(self):
         c = self.DB.cursor()

@@ -121,11 +121,15 @@
         }
         
     p.message {
-        color: black;
+        color: #117711;
+        border-left: solid 3px #117711;
+        padding: 3px 5px;
     }
     
     p.error {
-        color: red;
+        color: #771111;
+        border-left: solid 3px #771111;
+        padding: 3px 5px;
     }
         
     a.button {
@@ -165,7 +169,7 @@
 		    <td><a href="{{GLOBAL_AppTopPath}}/gui/datasets">datasets</a></td>
 		    <td><a href="{{GLOBAL_AppTopPath}}/gui/query">query</a></td>
 		    <td><a href="{{GLOBAL_AppTopPath}}/gui/named_queries">named queries</a></td>
-		    <td><a href="{{GLOBAL_AppTopPath}}/gui/mql">MQL parser</a></td>
+		    <!-- <td><a href="{{GLOBAL_AppTopPath}}/gui/mql">MQL parser</a></td> -->
 		    <td width="100%" align="right"> 
                         {% if GLOBAL_User %}
                             logged in as {{GLOBAL_User.Name}}&nbsp;({{GLOBAL_User.Username}})&nbsp;<a href="{{GLOBAL_AppTopPath}}/auth/logout?redirect={{GLOBAL_AppTopPath}}/gui/index">log out</a>
