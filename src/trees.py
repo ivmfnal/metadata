@@ -17,7 +17,8 @@ class Node(object):
     __repr__ = __str__
         
     def line(self):
-        return "%s m:%s" % (self.T, self.M or "")
+        meta_print = " (%s)" % (self.M,) if self.M else ""
+        return "%s%s" % (self.T, meta_print)
 
     def __add__(self, lst):
         return Node(self.T, self.C + lst, self.M)
@@ -107,7 +108,7 @@ class Visitor(object):	# deprecated
             method = getattr(self, node_type)
             visit_children = method(node, context)
         else:
-            visit_children = self.__default(node, context)
+            visit_children = self._default(node, context)
 
         if visit_children:
             for c in children:
@@ -118,7 +119,7 @@ class Visitor(object):	# deprecated
         for c in node.C:
             self.walk(c, context)
         
-    def __default(self, node, context):
+    def _default(self, node, context):
         return True
         
 class Descender(object):
@@ -141,7 +142,7 @@ class Descender(object):
             method = getattr(self, node_type)
             new_node = method(node, context)
         else:
-            new_node = self.__default(node, context)
+            new_node = self._default(node, context)
 
         if new_node is None:
             new_node = node
@@ -152,7 +153,8 @@ class Descender(object):
         node.C = [self.walk(c, context) for c in node.C]
         return node
         
-    def __default(self, node, context):
+    def _default(self, node, context):
+        #print("Descender._default: node:", node.pretty())
         return self.visit_children(node, context)
         
 class Ascender(object):
@@ -180,10 +182,10 @@ class Ascender(object):
             else:
                 out = method(children, node.M)
         else:
-            out = self.__default(node, children)
+            out = self._default(node, children)
         #print("Ascender %s: walk: out: %s" % (self.__class__.__name__, out))
         return out
         
-    def __default(self, node, children):
+    def _default(self, node, children):
         return Node(node.T, children=children, meta=node.M)
         

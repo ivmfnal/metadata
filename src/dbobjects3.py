@@ -130,24 +130,15 @@ class DBFileSet(object):
     __sub__ = subtract
     
     @staticmethod
-    def from_data_source(db, data_source_meta, with_metadata, limit):
-        datasets = list(DBDataset.list_datasets(db, data_source_meta.Patterns, data_source_meta.WithChildren, 
-                data_source_meta.Recursively, data_source_meta.Having))
-        dataset_specs = [(ds.Namespace, ds.Name) for ds in datasets]
-        dnf = data_source_meta.wheres_dnf()
-        if limit is None:
-            limit = data_source_meta.Limit
-        elif data_source_meta.Limit is not None:
-            limit = min(limit, data_source_meta.Limit)
-            
-        if True:
-            if len(datasets) == 1:
-                return datasets[0].list_files(with_metadata = with_metadata, condition=dnf, limit=limit)
-            else:
-                return DBDataset.files_from_multiple_datasets(db, datasets, dnf, with_metadata, limit)
-        else:
-            return DBFileSet.union(db, (ds.list_files(with_metadata = with_metadata, condition=dnf, limit=limit) 
-                            for ds in datasets)).limit(limit)
+    def from_data_source(db, data_source, with_metadata, limit):
+        datasets = DBDataset.list_datasets(db, data_source.Patterns, data_source.WithChildren, 
+                data_source.Recursively, data_source.Having)
+        return DBFileSet.union(db, 
+                    (   ds.list_files(with_metadata = with_metadata, 
+                        condition=data_source.Wheres, limit=limit) 
+                        for ds in datasets
+                    )
+        ).limit(limit)
         
 class DBFile(object):
 
@@ -425,7 +416,41 @@ class MetaExpressionDNF(object):
             return " or ".join([self.sql_and(t, table_name) for t in self.Expression])
         else:
             return " true "
-            
+
+class MetaExpressionSQLConverter(object):
+
+    def __init__(self, meta_exp):
+        self.Expression = meta_exp
+
+    def sql(self, table_name):
+        return self._sql_rec(self.Expression, table_name)
+        
+    def _term_sql(self, exp):
+        op, aname, aval = exp.C
+        if op in ("=", "=="):
+            v = str(aval)
+            if isinstance(aval, str):       v = '"%s"' % (aval,)
+            elif isinstance(aval, bool):    v = "true" if aval else "false"
+            return '"%s":%s' % (aname, v)
+        elif op == "in":
+            val = '"%s"' % (aval,) if isinstance(aval, str) else str(aval)
+            return '"%s":[%s]' % (aname, val)
+        else:
+            if isinstance(aval, (int, float)):
+                return f"({table_name}.metadata ->> '{aname}')::float {op} {aval}"
+            elif isinstance(aval, str):
+                return f"{table_name}.metadata ->> '{aname}' {op} '{aval}'"
+        
+    def _sql_rec(self, exp, table_name):
+        if exp_type == "meta_or":
+            return "(" + " or ".join([self._sql_rec(e) for e in exp.C]) + ")"
+        if exp_type == "meta_and":
+            return "(" + " and ".join([self._sql_rec(e) for e in exp.C]) + ")"
+        if exp_type == "meta_not":
+            return "(not (%s))" % (self._sql_rec(exp.C[0]),)
+        else:
+            return self._term_sql(exp)
+        
 class DBDataset(object):
 
     def __init__(self, db, namespace, name, parent_namespace=None, parent_name=None, frozen=False, monotonic=False):
@@ -510,40 +535,12 @@ class DBDataset(object):
         return (DBDataset(db, namespace, name, parent_namespace, parent_name, frozen, monotonic) for
                 namespace, name, parent_namespace, parent_name, frozen, monotonic in fetch_generator(c))
 
-
-    @staticmethod
-    def files_from_multiple_datasets(db, datasets, dnf, with_metadata, limit):
-        datasets = list(datasets)
-        dataset_names = set(ds.Name for ds in datasets)
-        dataset_namespaces = set(ds.Namespace for ds in datasets)
-        specs = ["%s:%s" % (ds.Namespace, ds.Name) for ds in datasets]
-        meta_where_clause = MetaExpressionDNF(dnf).sql("files")
-        limit = "" if limit is None else f"limit {limit}"   
-        meta = "files.metadata" if with_metadata else "null"     
-        sql = f"""select files.id, files.namespace, files.name, {meta}
-                                        from files
-                                        inner join files_datasets fd on fd.file_id = files.id
-                                        where 
-                                            fd.dataset_namespace = any(%s)
-                                            and fd.dataset_name = any(%s)
-                                            and fd.dataset_namespace || ':' || fd.dataset_name = any(%s) 
-                                            and {meta_where_clause}
-                                        {limit}
-                                        """
-
-        print("DBDataset.files_from_multiple_datasets: sql:", sql)
-        c = db.cursor()
-        c.execute(sql, (list(dataset_namespaces), list(dataset_names), specs))
-        return DBFileSet.from_tuples(db, fetch_generator(c))
-        
-
-
     def list_files(self, recursive=False, with_metadata = False, condition=None, relationship="self",
                 limit=None):
         # relationship is ignored for now
         # condition is the filter condition in DNF nested list format
 
-        meta_where_clause = MetaExpressionDNF(condition).sql("files")
+        meta_where_clause = MetaExpressionSQLConverter(condition).sql("files")
         limit = "" if limit is None else f"limit {limit}"        
         if with_metadata:
             sql = f"""select files.id, files.namespace, files.name, files.metadata
@@ -597,7 +594,7 @@ class DBDataset(object):
         datasets = set()
         c = db.cursor()
         for match, (namespace, name) in patterns:
-            print("list_datasets: match, namespace, name", match, namespace, name)
+            #print("list_datasets: match, namespace, name", match, namespace, name)
             if match:
                 c.execute("""select namespace, name from datasets
                             where namespace = %s and name like %s""", (namespace, name))
@@ -605,7 +602,7 @@ class DBDataset(object):
                 c.execute("""select namespace, name from datasets
                             where namespace = %s and name = %s""", (namespace, name))
             for namespace, name in c.fetchall():
-                print("list_datasets: add", namespace, name)
+                #print("list_datasets: add", namespace, name)
                 datasets.add((namespace, name))
         #print("list_datasets: with_children:", with_children)
         if with_children:
