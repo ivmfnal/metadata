@@ -505,7 +505,7 @@ class DataHandler(BaseHandler):
          
         return dataset.to_json(), "text/json"  
             
-    def create_files(self, request, relpath, namespace=None, dataset=None, **args):
+    def add_files(self, request, relpath, namespace=None, datasets=None, **args):
         # request body: JSON with list:
         #
         # [
@@ -523,97 +523,120 @@ class DataHandler(BaseHandler):
         file_list = json.loads(request.body) if request.body else []
         if not file_list:
                 return "Empty file list", 400
+        if not namespace:
+            return "Namespace must be specified", 400
 
         db = self.App.connect()
-        dataset_namespace, dataset_name = dataset.split(":", 1)
-        dsns = DBNamespace.get(db, dataset_namespace)
-        if dsns is None:
-            return "Dataset namespace not found", 404
-        if not user in dsns.Owner:
-            return 403
-
-        ns = DBNamespace.get(db, namespace)
-        if ns is None:
-            return "Namespace not found", 404
-        if not user in ns.Owner:
-            return 403
+        
+        namespace_name = namespace
+        namespace = DBNamespace.get(db, namespace_name)
+        if namespace is None:
+            return f"Namespace {namespace_name} not found", 404
+                
+        if not user in namespace.Owner:
+            return f"Permission to add files to namespace {namespace_name} denied", 403
             
-        ds = DBDataset.get(db, dataset_namespace, dataset_name)
-        if ds is None:
-            return "Dataset not found", 404
+        dslist = []
+        for ds_spec in datasets.split(","):
+            words = ds_spec.split(":", 1)
+            if len(words) == 2:
+                dataset_namespace, dataset_name = words
+                ns = DBNamespace.get(db, dataset_namespace)
+                if ns is None:
+                    return f"Namespace {dataset_namespace} not found", 404
+                if not user in ns.Owner:
+                    return f"Permission to add to dataset {dataset_namespace}:{dataset_name} denied", 403
+            else:
+                dataset_namespace = namespace_name
+                dataset_name = ds_spec
+                ns = namespace
+                
+            ds = DBDataset.get(db, dataset_namespace, dataset_name)
+            if ds is None:
+                return f"Dataset {ds_spec} not found", 404
+            dslist.append(ds)
 
-        out = []
-
+        files = []
         for file_item in file_list:
                 name = file_item["name"]
                 fid = file_item.get("fid") or None
                 parents = file_item.get("parents") or None
                 meta = file_item.get("metadata") or {}
-                f = DBFile(db, name=name, namespace=namespace, fid=fid, metadata=meta).save(do_commit=False)
+                f = DBFile(db, name=name, namespace=namespace_name, fid=fid, metadata=meta).save(do_commit=False)
                 if parents:
-                        f.add_parents(parents, do_commit=False)
-                out.append(dict(
-                        name=name,
-                        namespace=namespace,
-                        fid=f.FID
-                ))
+                    f.add_parents(parents, do_commit=False)
+                files.append(f)
+
+        for ds in dslist:
+            ds.add_files(files)
+
+        out = [
+                    dict(
+                        name=f.Name, fid=f.FID
+                    )
+                    for f in files
+        ]
         db.cursor().execute("commit")
         return json.dumps(out), "text/json"
-
-    def create_file(self, request, relpath, fid=None, 
-                parent_fid=None, parent=None, 
-                file=None, 
-                dataset=None, **args):
-        # method: POST, URI: .../file?fid=fid&parent=fid
-        # request body = metadata in JSON format
+        
+    def update_files(self, request, relpath, **args):
+        # request body: JSON with list:
+        #
+        # [
+        #       {       
+        #               spec: "namespace:name",   // either spec or fid, but not both
+        #               fid: "fid",               // either spec or fid, but not both
+        #               parents:        [fid,...],              // optional
+        #               metadata: { ... }       // optional
+        #       },...
+        # ]
+        #               
         user = self.authenticated_user()
         if user is None:
             return 401
-        metadata = json.loads(request.body) if request.body else {}
-        if None in (dataset, file):
-            return "dataset and file  must be specified", 400
-
-        dataset_namespace, dataset_name = dataset.split(":", 1)
-        namespace, name = file.split(":", 1)
-            
+        file_list = json.loads(request.body) if request.body else []
+        if not file_list:
+                return "Empty file list", 400
         db = self.App.connect()
-        
-        ns = DBNamespace.get(db, namespace)
-        if ns is None:
-            return "Namespace not found", 404
+        verified_namespaces = set()
+        files = []
+        for file_item in file_list:
+            if "spec" in file_item:
+                namespace, name = file_item["spec"].split(":",1)
+                f = DBFile.get(db, namespace=namespace, name=name)
+                if f is None:
+                    return "File %s not found" % (file_item["spec"],), 404
+            else:
+                fid = file_item["fid"]
+                f = DBFile.get(db, FID=fid)
+                if f is None:
+                    return "File with fid=%s not found" % (fid,), 404
+                namespace = f.Namespace
+                name = f.Name
             
-        dsns = DBNamespace.get(db, dataset_namespace)
-        if dsns is None:
-            return "Dataset namespace not found", 404
+            if not namespace in verified_namespaces:
+                ns = DBNamespace.get(db, namespace)
+                if not user in ns.Owner:
+                    return f"Permission to update files to namespace {namespace} denied", 403
+                verified_namespaces.add(namespace)
+            
+            if "parents" in file_item:
+                f.set_parents(file_item["parents"], do_commit=False)
+            if "metadata" in file_item:
+                f.Metadata = file_item["metadata"]
+            f.save(do_commit=False)
+            files.append(f)
+        db.cursor().execute("commit")
+        out = [
+                    dict(
+                        spec="%s:%s" % (f.Namespace, f.Name), 
+                        fid=f.FID
+                    )
+                    for f in files
+        ]
+        return json.dumps(out), "text/json"
+                
 
-        if not (user in ns.Owner and user in dsns.Owner):
-            return 403
-            
-        ds = DBDataset.get(db, dataset_namespace, dataset_name)
-        if ds is None:
-            return "Dataset not found", 404
-            
-        if DBFile.get(db, namespace=namespace, name=name) is not None or (fid is not None and DBFile.get(db, fid=fid) is not None):
-            return "File with same name and/or file id already exists", 409
-
-        parent_f = None
-        if parent is not None:
-                parent_namespace, parent_name = parent.split(":", 1)
-                parent_f = DBFile.get(db, namespace=parent_namespace, name=parent_name)
-                if parent_f is None:
-                    return "Parent not found", 404
-
-        if parent_fid is not None:
-                parent_f = DBFile.get(db, fid=parent_fid)
-                if parent_f is None:
-                    return "Parent not found", 404
-        
-        f = DBFile(db, namespace=namespace, name=name, fid=fid, metadata=metadata).save(do_commit=False)
-        if parent_f is not None:
-                parent_f.add_child(f, do_commit=False)
-        ds.add_file(f, do_commit=True)
-        return json.dumps({"fid":f.FID}) + "\n", "text/json"
-            
     def update_file(self, request, relpath, fid=None, **args):
         # update file metadata
         # method: PUT, URI: .../file/namespace:name or
@@ -630,12 +653,12 @@ class DataHandler(BaseHandler):
         f.save_metadata(metadata)
         return json.dumps({"fid":f.FID}) + "\n", "text/json"
             
-    def file(self, request, relpath, file=None, fid=None, with_metadata="yes", with_relations="yes", **args):
+    def file(self, request, relpath, spec=None, fid=None, with_metadata="yes", with_relations="yes", **args):
         namespace = name = None
         if relpath:
                 namespace, name = relpath.split(":",1)
-        elif file:
-                namespace, name = file.split(":", 1)
+        elif spec:
+                namespace, name = spec.split(":", 1)
         elif fid is None:
                 return 403, "Either file=namespace:name or fid=FID must be specified"
                 
@@ -777,7 +800,7 @@ class App(WPApp):
 
     def connect(self):
         conn = self.DB.connect()
-        print("conn: %x" % (id(conn),), "   idle connections:", ",".join("%x" % (id(c),) for c in self.DB.IdleConnections))
+        #print("conn: %x" % (id(conn),), "   idle connections:", ",".join("%x" % (id(c),) for c in self.DB.IdleConnections))
         return conn
         
     def get_password(self, realm, username):

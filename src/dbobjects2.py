@@ -182,6 +182,32 @@ class DBFile(object):
             c.execute("rollback")
             raise AlreadyExistsError("%s:%s" % (self.Namespace, self.Name))
         return self
+        
+    @staticmethod
+    def save_many(db, files):
+        from psycopg2 import IntegrityError
+        tuples = [
+            dict(fid=f.FID, namespace=f.Namespace, name=f.Name, meta=json.dumps(f.Metadata or {}))
+            for f in files
+        ]
+        c = db.cursor()
+        try:
+            c.executemany("""
+                insert 
+                    into files(id, namespace, name, metadata) 
+                    values(%{fid}s, %{namespace}s, %{name}s, %{meta}s)
+                    on conflict(id) 
+                        do update set 
+                            namespace=%{namespace}s, name=%{name}s, metadata=%{meta}s""",
+                tuples)
+            if do_commit:   c.execute("commit")
+            for f in files: f.DB = db
+        except IntegrityError:
+            c.execute("rollback")
+            raise AlreadyExistsError("%s:%s" % (self.Namespace, self.Name))
+        return self
+        
+    
                             
     @staticmethod
     def get(db, fid = None, namespace = None, name = None, with_metadata = False):
@@ -293,6 +319,18 @@ class DBFile(object):
         parent_fids = [(p if isinstance(p, str) else p.FID,) for p in parents]
         c = self.DB.cursor()
         c.executemany(f"""
+            insert into parent_child(parent_id, child_id)
+                values(%s, '{self.FID}')        
+                on conflict(parent_id, child_id) do nothing;
+            """, parent_fids
+        )
+        if do_commit:   c.execute("commit")
+        
+    def set_parents(self, parents, do_commit=True):
+        parent_fids = [(p if isinstance(p, str) else p.FID,) for p in parents]
+        c = self.DB.cursor()
+        c.executemany(f"""
+            delete from parent_child where child_id='{self.FID}';
             insert into parent_child(parent_id, child_id)
                 values(%s, '{self.FID}')        
                 on conflict(parent_id, child_id) do nothing;

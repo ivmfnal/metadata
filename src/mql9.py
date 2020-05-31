@@ -1,4 +1,4 @@
-from dbobjects3 import DBDataset, DBFile, DBNamedQuery, DBFileSet
+from dbobjects2 import DBDataset, DBFile, DBNamedQuery, DBFileSet
 from trees import Node, pass_node, Ascender, Descender, Visitor
 import json, time
 
@@ -10,18 +10,96 @@ CMP_OPS = [">" , "<" , ">=" , "<=" , "==" , "=" , "!=", "~~", "~~*", "!~~", "!~~
 
 from grammar8 import MQL_Grammar
 
-class DataSourceMeta(object):
+class _MetaRegularizer(Ascender):
+    # converts the meta expression into DNF form:
+    #
+    #   Node(or, [Node(and, [exp, ...])])
+    #
 
-    def __init__(self, patterns, with_children, recursively, having):
+    def _flatten_bool(self, op, nodes):
+        #print("_flatten_bool: input:", nodes)
+        new_nodes = []
+        for c in nodes:
+            if c.T == op:
+                new_nodes += self._flatten_bool(op, c.C)
+            else:
+                new_nodes.append(c)
+        #print("_flatten_bool: output:", new_nodes)
+        return new_nodes
+
+    def meta_or(self, children, meta):
+        children = [x if x.T == "meta_and" else Node("meta_and", [x]) for x in self._flatten_bool("meta_or", children)]
+        out = Node("meta_or", children)
+        return out
+
+    def _generate_and_terms(self, path, rest):
+        if len(rest) == 0:  yield path
+        else:
+            node = rest[0]
+            rest = rest[1:]
+            if node.T == "meta_or":
+                for c in node.C:
+                    my_path = path + [c]
+                    for p in self._generate_and_terms(my_path, rest):
+                        yield p
+            else:
+                for p in self._generate_and_terms(path + [node], rest):
+                    yield p
+
+    def meta_and(self, children, meta):
+        children = self._flatten_bool("meta_and", children)
+        or_present = False
+        for c in children:
+            if c.T == "meta_or":
+                or_present = True
+                break
+
+        if or_present:
+            paths = list(self._generate_and_terms([], children))
+            #print("paths:")
+            #for p in paths:
+            #    print(p)
+            paths = [self._flatten_bool("meta_and", p) for p in paths]
+            #print("meta_and: children:", paths)
+            return Node("meta_or", [Node("meta_and", p) for p in paths])
+        else:
+            return Node("meta_and", children)
+                
+    
+    @staticmethod
+    def _make_DNF_lists(exp):
+        if exp is None: return None
+        if exp.T in CMP_OPS or exp.T == "in":
+            return self._make_DNF(Node("meta_and", [exp]))
+        elif exp.T == "meta_and":
+            return self._make_DNF(Node("meta_or", [exp]))
+        elif exp.T == "meta_or":
+            or_exp = []
+            assert exp.T == "meta_or"
+            for meta_and in exp.C:
+                and_exp = []
+                assert meta_and.T == "meta_and"
+                for c in meta_and.C:
+                    assert c.T in CMP_OPS or c.T == "in", "Unknown operation %s, expected cmp op or 'in'" % (c.T,)
+                    and_exp.append((c.T, c.C[0], c.C[1]))
+                or_exp.append(and_exp)
+            return or_exp
+            
+class DatasetSelector(object):
+
+    def __init__(self, patterns, with_children, recursively, having, limit):
         self.Patterns = patterns
         self.WithChildren = with_children
         self.Recursively = recursively
         self.Having = having
         self.Wheres = None      # and-list
+        self.WheresDNF = None
+        self.Limit = limit
 
     def line(self):
-        return "DataSource(patterns=%s with_children=%s rec=%s having=%s)" % (self.Patterns, self.WithChildren,
-                self.Recursively, self.Having)
+        where_text = "" if self.Wheres is None else "\n%s\n" % (self.Wheres.pretty(),)
+        return "DatasetSelector(patterns=%s with_children=%s rec=%s having=%s limit=%s where:%s)" % (self.Patterns, self.WithChildren,
+                self.Recursively, self.Having, self.Limit, where_text)
 
     __str__ = line
                 
@@ -31,13 +109,22 @@ class DataSourceMeta(object):
     def addWhere(self, where):
         assert isinstance(where, Node) and where.T == "meta_or"
         if self.Wheres is None:
-            self.Wheres = where
+            wheres = where
         else:
-            self.Wheres = self.Wheres & where
+            wheres = self.Wheres & where
+        self.Wheres = _MetaRegularizer().walk(wheres)
+            
+        
+    def wheres_dnf(self):
+        return self.WheresDNF
         
     def file_list(self, with_metadata):
         return DBFileList.from_data_source(self, with_metadata)   
-            
+        
+    def addLimit(self, limit):
+        if self.Limit is None:   self.Limit = limit
+        else:   self.Limit = min(self.Limit, limit)
+        
 class _ParamsApplier(Descender):
 
     def data_source(self, node, params):
@@ -93,6 +180,32 @@ class _Converter(Transformer):
         tree = self.transform(tree)
         #print("_Converter.transform: tree:", tree.pretty())
         return self._apply_params(tree, {"namespace":default_namespace})
+        
+    def files_from_datasets(self, args):
+        return Node("files_from_datasets", meta=args[0].M)
+
+    def dataset_selector(self, args):
+        spec_list = args[0].M
+        with_children = False
+        recursively = False
+        having = None
+        args_ = args[1:]
+        for i, a in enumerate(args_):
+            if a.value == "children":
+                with_children = True
+            elif a.value == "recursively":
+                recursively = True
+            elif a.value == "having":
+                having = args_[i+1]
+        meta = DatasetSelector(spec_list, with_children, recursively, having, None)
+        return Node("data_source", meta = meta)
+
+    def limited_query(self, args):
+        assert len(args) in (1,2)
+        if len(args) == 1:
+            return args[0]      # no limit
+        else:
+            return Node("limit", [args[0]], meta=int(args[1].value))
 
     def query(self, args):
         if len(args) == 2:
@@ -124,22 +237,6 @@ class _Converter(Transformer):
     def constant_list(self, args):
         return args
         
-    def data_source(self, args):
-        spec_list = args[0].M
-        with_children = False
-        recursively = False
-        having = None
-        args_ = args[1:]
-        for i, a in enumerate(args_):
-            if a.value == "children":
-                with_children = True
-            elif a.value == "recursively":
-                recursively = True
-            elif a.value == "having":
-                having = args_[i+1]
-        meta = DataSourceMeta(spec_list, with_children, recursively, having)
-        #print("data_source: meta:", meta)
-        return Node("data_source", meta = meta)
         
     def source_spec_list(self, args):
         return Node("source_spec_list", [], meta=[a.M for a in args])
@@ -273,8 +370,6 @@ class _Converter(Transformer):
         return Node("in", [args[1].value, args[0]])
         
     def meta_and(self, args):
-        if len(args) == 1:
-            return args[0]
         children = []
         for a in args:
             if a.T == "meta_and":
@@ -284,8 +379,6 @@ class _Converter(Transformer):
         return Node("meta_and", children)
         
     def meta_or(self, args):
-        if len(args) == 1:
-            return args[0]
         children = []
         for a in args:
             if a.T == "meta_or":
@@ -360,6 +453,34 @@ class _ProvenancePusher(Descender):
         if isinstance(child, Node) and child.T == "union":
             return Node("union", [self.walk(Node("children_of", [cc])) for cc in child.C])
 
+class _LimitPusher(Descender):
+    
+    def limit(self, node, limit):
+        #print("_LimitPusher.limit: node:", node)
+        assert len(node.C) == 1
+        limit = node.M if limit is None else min(limit, node.M)
+        return self.walk(node.C[0], limit)
+        
+    def union(self, node, limit):
+        return Node("limit", 
+            [Node("union", 
+                [self.walk(c, limit) for c in node.C]
+                )
+            ], meta=limit)
+            
+    def data_source(self, node, limit):
+        node.M.addLimit(limit)
+        return node
+        
+    def _default(self, node, limit):
+        print("_LimitPusher._default: node:", node.pretty())
+        if limit is not None:
+            new_node = Node(node.T, node.C, node.M)
+            self.visit_children(new_node, None)
+            return Node("limit", [new_node], meta=limit)
+        else:
+            return self.visit_children(node, None)
+            
 class _MetaExpPusher(Descender):
 
     def meta_filter(self, node, meta_exp):
@@ -382,13 +503,38 @@ class _MetaExpPusher(Descender):
     def minus(self, node, meta_exp):
         assert len(node.C) == 2
         left, right = node.C
-        return Node(t, [self.walk(left, meta_exp), right])
+        return Node("minus", [self.walk(left, meta_exp), self.walk(right, None)])
         
     def data_source(self, node, meta_exp):
         assert isinstance(node.M, DataSourceMeta)
         if meta_exp is not None:    node.M.addWhere(meta_exp)
         #print("_MetaExpPusher.DataSource: out: ", node.pretty())
         return node
+        
+if False:
+  class _DNFConverter(Visitor):
+
+    # find all DataSource nodes and apply DNF converter to their Wheres
+
+    def DataSource(self, node, context):
+        exp = node.Wheres
+        if exp is not None:
+            assert isinstance(exp, Node)
+            exp = _MetaRegularizer().walk(exp)
+            node.WheresDNF = _MetaRegularizer._make_DNF_lists(exp)
+        return False
+else:        
+  class _DNFConverter(Descender):
+
+    # find all DataSource nodes and apply DNF converter to their Wheres
+
+    def data_source(self, node, _):
+        #print("_DNFConverter.DataSource: node:", node, type(node))
+        exp = node.M.Wheres
+        if exp is not None:
+            assert isinstance(exp, Node)
+            exp = _MetaRegularizer().walk(exp)
+            node.M.WheresDNF = _MetaRegularizer._make_DNF_lists(exp)
         
 class _SQLGenerator(Ascender):
 
@@ -418,6 +564,13 @@ class _Evaluator(Ascender):
         arg = args[0]
         #print("children_of: arg:", arg)
         return arg.children(with_metadata=True)
+
+    def limit(self, args, meta):
+        assert len(args) == 1
+        if meta is not None:
+            return args[0].limit(meta)
+        else:
+            return args[0]
             
     @pass_node        
     def data_source(self, node):
@@ -572,13 +725,15 @@ class Query(object):
         #print("parsed:", self.Parsed.pretty())
         return self.Parsed
         
-    def assemble(self, db, default_namespace = None):
+    def assemble(self, db, default_namespace = None, limit=None):
         #print("Query.assemble: self.Assembled:", self.Assembled)
         if self.Assembled is None:
             parsed = self.parse()
             #print("Query.assemble(): parsed:", parsed.pretty())
             self.Assembled = _Assembler(db, default_namespace).walk(parsed)
             #print("Query.assemble: self.Assembled:", self.Assembled.pretty())
+            if limit is not None:
+                self.Assembled = Node("limit", [self.Assembled], meta=limit)
         return self.Assembled
         
     def skip_assembly(self):
@@ -595,16 +750,26 @@ class Query(object):
             print("Query.optimize: after _ProvenancePusher:", optimized.pretty())
             optimized = _MetaExpPusher().walk(optimized, None)
             print("Query.optimize: after _MetaExpPusher:", optimized.pretty())
+            optimized = _LimitPusher().walk(optimized, None)
+            print("Query.optimize: after _LimitPusher:", optimized.pretty())
+            optimized = _DNFConverter().walk(optimized, None)
+            print("Query.optimize: after DNF converter:", optimized.pretty())
             self.Optimized = optimized
         return self.Optimized
 
+    def generate_sql(self):
+        #print("generate_sql: canonic:", canonic.pretty())
+        sql = _SQLGenerator().walk(canonic)
+        #print("generate_sql: canonic: sql:", sql.pretty())
+        return sql
+
     def run(self, db, filters={}, limit=None, with_meta=True):
         #print("Query.run: DefaultNamespace:", self.DefaultNamespace)
-        self.assemble(db, self.DefaultNamespace)
+        self.assemble(db, self.DefaultNamespace, limit)
         #print("Query.run: assemled:", self.Assembled.pretty())
         optimized = self.optimize()
-        #print("Query.run: optimized:", optimized.pretty())
-        out = _Evaluator(db, filters, with_meta, limit).walk(optimized)
+        print("Query.run: optimized:", optimized.pretty())
+        out = _Evaluator(db, filters, with_meta, None).walk(optimized)
         #print ("run: out:", out)
         return out
         
