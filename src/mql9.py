@@ -8,7 +8,7 @@ import pprint
 
 CMP_OPS = [">" , "<" , ">=" , "<=" , "==" , "=" , "!=", "~~", "~~*", "!~~", "!~~*"]
 
-from grammar8 import MQL_Grammar
+from grammar9 import MQL_Grammar
 
 class _MetaRegularizer(Ascender):
     # converts the meta expression into DNF form:
@@ -85,27 +85,20 @@ class _MetaRegularizer(Ascender):
                 or_exp.append(and_exp)
             return or_exp
             
-class DatasetSelector(object):
-
-    def __init__(self, patterns, with_children, recursively, having, limit):
-        self.Patterns = patterns
-        self.WithChildren = with_children
-        self.Recursively = recursively
-        self.Having = having
-        self.Wheres = None      # and-list
-        self.WheresDNF = None
-        self.Limit = limit
-
-    def line(self):
-        where_text = "" if self.Wheres is None else "\n%s\n" % (self.Wheres.pretty(),)
-        return "DatasetSelector(patterns=%s with_children=%s rec=%s having=%s limit=%s where:%s)" % (self.Patterns, self.WithChildren,
-                self.Recursively, self.Having, self.Limit, where_text)
-
-    __str__ = line
-                
-    def setHaving(self, having):
-        self.Having = having
+class BasicFileQuery(object):
     
+    def __init__(self, dataset_selector, where=None):
+        self.DatasetSelector = dataset_selector
+        self.Wheres = where
+        self.WheresDNF = None
+        self.Limit = None
+        
+    def line(self):
+        return "BasicFileQuery(selector:%s, limit:%s, meta_exp:%s)" % (self.DatasetSelector, self.Limit, 
+            self.Wheres)
+        
+    __str__ = line
+
     def addWhere(self, where):
         assert isinstance(where, Node) and where.T == "meta_or"
         if self.Wheres is None:
@@ -114,7 +107,6 @@ class DatasetSelector(object):
             wheres = self.Wheres & where
         self.Wheres = _MetaRegularizer().walk(wheres)
             
-        
     def wheres_dnf(self):
         return self.WheresDNF
         
@@ -124,10 +116,30 @@ class DatasetSelector(object):
     def addLimit(self, limit):
         if self.Limit is None:   self.Limit = limit
         else:   self.Limit = min(self.Limit, limit)
+
+class DatasetSelector(object):
+
+    def __init__(self, patterns, with_children, recursively, having, limit):
+        self.Patterns = patterns
+        self.WithChildren = with_children
+        self.Recursively = recursively
+        self.Having = having
+
+    def line(self):
+        return "DatasetSelector(patterns=%s with_children=%s rec=%s having=%s)" % (self.Patterns, self.WithChildren,
+                self.Recursively, self.Having)
+
+    __str__ = line
+                
+    def setHaving(self, having):
+        self.Having = having
+        
+    def datasets(self, db):
+        return DBDataset.apply_dataset_selector(db, self)
         
 class _ParamsApplier(Descender):
 
-    def data_source(self, node, params):
+    def dataset_selector(self, node, params):
         #print("_ParamsApplier.DataSource: params:", params)
         if params is not None:
             assert isinstance(params, dict)
@@ -135,7 +147,7 @@ class _ParamsApplier(Descender):
             #print("_ParamsApplier.DataSource: default_namespace", default_namespace)
             patterns = []
             meta = node.M
-            assert isinstance(meta, DataSourceMeta)
+            assert isinstance(meta, DatasetSelector)
             for match, (namespace, name) in meta.Patterns:
                 namespace = namespace or default_namespace
                 patterns.append((match, (namespace, name)))
@@ -167,7 +179,7 @@ class _ParamsApplier(Descender):
             if node.M[0] is None:
                 node.M[0] = params.get("namespace")
         return node
-
+        
 class _Converter(Transformer):
 
     def _apply_params(self, tree, params):
@@ -181,8 +193,11 @@ class _Converter(Transformer):
         #print("_Converter.transform: tree:", tree.pretty())
         return self._apply_params(tree, {"namespace":default_namespace})
         
-    def files_from_datasets(self, args):
-        return Node("files_from_datasets", meta=args[0].M)
+    def basic_file_query(self, args):
+        assert len(args) == 1 and isinstance(args[0].M, DatasetSelector)
+        dataset_selector = args[0].M
+        q = BasicFileQuery(dataset_selector)
+        return Node("basic_file_query", meta = q)
 
     def datasets_selector(self, args):
         spec_list = args[0].M
@@ -198,14 +213,19 @@ class _Converter(Transformer):
             elif a.value == "having":
                 having = args_[i+1]
         meta = DatasetSelector(spec_list, with_children, recursively, having, None)
-        return Node("data_source", meta = meta)
+        return Node("datasets_selector", meta = meta)
 
-    def limited_query(self, args):
+    def limited_file_query(self, args):
         assert len(args) in (1,2)
-        if len(args) == 1:
-            return args[0]      # no limit
-        else:
-            return Node("limit", [args[0]], meta=int(args[1].value))
+        limit = None if len(args) == 1 else int(args[1].value)
+        return Node("file_query", [args[0]], meta=limit)     
+#            return Node("limit", [args[0]], meta=int(args[1].value))
+            
+    def dataset_query(self, args):
+        print(args)
+        print(args[0].M)
+        assert len(args) == 1 and isinstance(args[0].M, DatasetSelector)
+        return Node("dataset_query", [args[0]], meta=args[0].M)
 
     def query(self, args):
         if len(args) == 2:
@@ -452,7 +472,7 @@ class _ProvenancePusher(Descender):
         if isinstance(child, Node) and child.T == "union":
             return Node("union", [self.walk(Node("children_of", [cc])) for cc in child.C])
 
-class _LimitPusher(Descender):
+class _LimitApplier(Descender):
     
     def limit(self, node, limit):
         #print("_LimitPusher.limit: node:", node)
@@ -461,13 +481,16 @@ class _LimitPusher(Descender):
         return self.walk(node.C[0], limit)
         
     def union(self, node, limit):
-        return Node("limit", 
-            [Node("union", 
-                [self.walk(c, limit) for c in node.C]
-                )
-            ], meta=limit)
+        if limit is not None:
+            return Node("limit", 
+                [Node("union", 
+                    [self.walk(c, limit) for c in node.C]
+                    )
+                ], meta=limit)
+        else:
+            return node
             
-    def data_source(self, node, limit):
+    def basic_file_query(self, node, limit):
         node.M.addLimit(limit)
         return node
         
@@ -505,8 +528,8 @@ class _MetaExpPusher(Descender):
         left, right = node.C
         return Node("minus", [self.walk(left, meta_exp), self.walk(right, None)])
         
-    def data_source(self, node, meta_exp):
-        assert isinstance(node.M, DataSourceMeta)
+    def basic_file_query(self, node, meta_exp):
+        assert isinstance(node.M, BasicFileQuery)
         if meta_exp is not None:    node.M.addWhere(meta_exp)
         #print("_MetaExpPusher.DataSource: out: ", node.pretty())
         return node
@@ -528,7 +551,7 @@ else:
 
     # find all DataSource nodes and apply DNF converter to their Wheres
 
-    def data_source(self, node, _):
+    def basic_file_query(self, node, _):
         #print("_DNFConverter.DataSource: node:", node, type(node))
         exp = node.M.Wheres
         if exp is not None:
@@ -539,7 +562,7 @@ else:
 class _SQLGenerator(Ascender):
 
     @pass_node
-    def data_source(self, node):
+    def basic_file_query(self, node):
         keep_meta = True
         return Node("SQL", meta=node.M.sql())
             
@@ -552,6 +575,11 @@ class _Evaluator(Ascender):
         self.DB = db
         self.WithMeta = with_meta
         self.Limit = limit
+        
+    def dataset_query(self, args, meta):
+        assert isinstance(meta, DatasetSelector)
+        return meta.datasets(self.DB)
+        
 
     def parents_of(self, args, meta):
         assert len(args) == 1
@@ -566,25 +594,15 @@ class _Evaluator(Ascender):
         return arg.children(with_metadata=True)
 
     def limit(self, args, meta):
-        assert len(args) == 1
+        assert len(args) == 1 and isinstance(args[0], DBFileSet)
         if meta is not None:
             return args[0].limit(meta)
         else:
             return args[0]
             
-    @pass_node        
-    def data_source(self, node):
-        assert isinstance(node.M, DataSourceMeta)
-        #print("_Evaluator.DataSource: node:", node.pretty())
-        return DBFileSet.from_data_source(self.DB, node.M, self.WithMeta, self.Limit)
-        
-    def source_spec_list(self, args, meta):
-        #print("source_spec_list: args:", args)
-        return DBFileSet.union(self.DB, args)
-        
-    def data_source_rec(self, args, meta):
-        assert len(args) == 1
-        return args[0]
+    def basic_file_query(self, args, meta):
+        assert isinstance(meta, BasicFileQuery)
+        return DBFileSet.from_basic_query(self.DB, meta, self.WithMeta, self.Limit)
         
     def union(self, args, meta):
         #print("Evaluator.union: args:", args)
@@ -605,15 +623,6 @@ class _Evaluator(Ascender):
         filter_function = self.Filters[name]
         return DBFileSet(self.DB, filter_function(inputs, params))
         
-    def meta_filter(self, args, meta):
-        assert len(args) == 2
-        #print("meta_filter: args:", args)
-        files, meta_exp = args
-        #print("Evaluator.meta_filter: files:", files, "   meta_exp:", meta_exp)
-        if meta_exp is not None:
-            return DBFileSet(self.DB, (f for f in files if self.evaluate_meta_expression(f, meta_exp)))
-        else:
-            return files
         
     def _eval_meta_bool(self, f, bool_op, parts):
         assert len(parts) > 0
@@ -720,20 +729,18 @@ class Query(object):
         
     def parse(self):
         if self.Parsed is None:
-            tree = self._Parser.parse(self.remove_comments(self.Source))
+            self.Tree = tree = self._Parser.parse(self.remove_comments(self.Source))
             self.Parsed = _Converter().convert(tree, self.DefaultNamespace)
         #print("parsed:", self.Parsed.pretty())
         return self.Parsed
         
-    def assemble(self, db, default_namespace = None, limit=None):
+    def assemble(self, db, default_namespace = None):
         #print("Query.assemble: self.Assembled:", self.Assembled)
         if self.Assembled is None:
             parsed = self.parse()
             #print("Query.assemble(): parsed:", parsed.pretty())
             self.Assembled = _Assembler(db, default_namespace).walk(parsed)
             #print("Query.assemble: self.Assembled:", self.Assembled.pretty())
-            if limit is not None:
-                self.Assembled = Node("limit", [self.Assembled], meta=limit)
         return self.Assembled
         
     def skip_assembly(self):
@@ -745,15 +752,13 @@ class Query(object):
         #print("Query.optimize: entry")
         assert self.Assembled is not None
         if self.Optimized is None:
-            print("Query.optimize: assembled:", self.Assembled.pretty())
+            #print("Query.optimize: assembled:", self.Assembled.pretty())
             optimized = _ProvenancePusher().walk(self.Assembled)
-            print("Query.optimize: after _ProvenancePusher:", optimized.pretty())
+            #print("Query.optimize: after _ProvenancePusher:", optimized.pretty())
             optimized = _MetaExpPusher().walk(optimized, None)
-            print("Query.optimize: after _MetaExpPusher:", optimized.pretty())
-            optimized = _LimitPusher().walk(optimized, None)
-            print("Query.optimize: after _LimitPusher:", optimized.pretty())
+            #print("Query.optimize: after _MetaExpPusher:\n", optimized.pretty())
             optimized = _DNFConverter().walk(optimized, None)
-            print("Query.optimize: after DNF converter:", optimized.pretty())
+            #print("Query.optimize: after DNF converter:", optimized.pretty())
             self.Optimized = optimized
         return self.Optimized
 
@@ -765,10 +770,17 @@ class Query(object):
 
     def run(self, db, filters={}, limit=None, with_meta=True):
         #print("Query.run: DefaultNamespace:", self.DefaultNamespace)
-        self.assemble(db, self.DefaultNamespace, limit)
+        
+        self.assemble(db, self.DefaultNamespace)
         #print("Query.run: assemled:", self.Assembled.pretty())
+        
         optimized = self.optimize()
-        print("Query.run: optimized:", optimized.pretty())
+        print("Query.run: optimized: ----\n", optimized.pretty())
+
+        if limit is not None:
+            optimized = _LimitApplier().walk(optimized, limit)
+            print("Limit %s applied: ----\n" % (limit,), optimized.pretty())
+        
         out = _Evaluator(db, filters, with_meta, None).walk(optimized)
         #print ("run: out:", out)
         return out
@@ -787,9 +799,27 @@ class Query(object):
 
 if __name__ == "__main__":
     import sys
-    tree = Query._Parser.parse(open(sys.argv[1], "r").read())
+    import psycopg2
+    q = Query(open(sys.argv[1], "r").read())
+    db = psycopg2.connect(sys.argv[2])
+
+    converted = q.parse()
+    tree = q.Tree
+    print("----- tre -----")
     print(tree)
-    converted = _Converter().transform(tree)
+    print("----- converted -----")
     print(converted.pretty())
+    
+    q.skip_assembly()
+    
+    optimized = q.optimize()
+    print("----- optimized -----")
+    print(optimized.pretty())
+    
+    results = q.run(db, with_meta=False)
+    for x in results:
+        print(x)
+    
+    
 
         

@@ -1,1 +1,5 @@
-files from A, S:B with children where x = 1 and y = 2
+union(
+	files from test:A,
+	files from test:B where i > 3
+) where b=true and i < 10
+

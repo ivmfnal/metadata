@@ -32,6 +32,11 @@ class DBFileSet(object):
         self.Files = files
         self.Limit = limit
         
+    @staticmethod
+    def empty(db):
+        for x in []:
+            yield x
+        
     def limit(self, n):
         return DBFileSet(self.DB, self.Files, n)
         
@@ -148,6 +153,23 @@ class DBFileSet(object):
         else:
             return DBFileSet.union(db, (ds.list_files(with_metadata = with_metadata, condition=dnf, limit=limit) 
                             for ds in datasets)).limit(limit)
+        
+    @staticmethod
+    def from_basic_query(db, basic_file_query, with_metadata, limit):
+        datasets = list(basic_file_query.DatasetSelector.datasets(db))
+        if not datasets:
+            return DBFileSet.empty(db)
+        dataset_specs = [(ds.Namespace, ds.Name) for ds in datasets]
+        dnf = basic_file_query.wheres_dnf()
+        if limit is None:
+            limit = basic_file_query.Limit
+        elif basic_file_query.Limit is not None:
+            limit = min(limit, basic_file_query.Limit)
+            
+        if len(datasets) == 1:
+            return datasets[0].list_files(with_metadata = with_metadata, condition=dnf, limit=limit)
+        else:
+            return DBDataset.files_from_multiple_datasets(db, datasets, dnf, with_metadata, limit)
         
 class DBFile(object):
 
@@ -635,7 +657,7 @@ class DBDataset(object):
         datasets = set()
         c = db.cursor()
         for match, (namespace, name) in patterns:
-            print("list_datasets: match, namespace, name", match, namespace, name)
+            print("list_datasets: match, namespace, name:", match, namespace, name)
             if match:
                 c.execute("""select namespace, name from datasets
                             where namespace = %s and name like %s""", (namespace, name))
@@ -666,6 +688,14 @@ class DBDataset(object):
                     parents = set()
         datasets = (DBDataset.get(db, namespace, name) for namespace, name in datasets)
         return datasets
+
+    @staticmethod    
+    def apply_dataset_selector(db, dataset_selector):
+        patterns = dataset_selector.Patterns
+        with_children = dataset_selector.WithChildren
+        recursively = dataset_selector.Recursively
+        having = dataset_selector.Having
+        return DBDataset.list_datasets(db, patterns, with_children, recursively, having)
         
 class DBNamedQuery(object):
 
