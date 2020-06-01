@@ -1,14 +1,13 @@
 MQL_Grammar = """
 ?query:  ("with" param_def_list)? params_applied_query
 
-params_applied_query:  file_query               -> s_
-    | dataset_query                             -> s_
+?params_applied_query:  file_query              
+    | dataset_query                            
 
-file_query: "files" "from" datasets_selector             -> files_from_datasets
-    |   file_query "where" meta_exp                      -> file_meta_filter
-    |   file_query_expression
+file_query: filterable_file_query ("where" meta_exp)?
 
-?file_query_expression:  "union" "(" file_query_list ")" -> union
+filterable_file_query:  "files" "from" datasets_selector    -> files_from_datasets
+    |   "union" "(" file_query_list ")"                     -> union
     |   "[" file_query_list "]"                          -> union
     |   "join"  "(" file_query_list ")"                  -> join
     |   "{" file_query_list "}"                          -> join
@@ -21,14 +20,14 @@ file_query: "files" "from" datasets_selector             -> files_from_datasets
     
 file_query_list: file_query ("," file_query)*     
 
-dataset_selector: dataset_spec_list ("with" "children" "recursively"?)? ("having" meta_exp)?
+!datasets_selector: dataset_spec_list ("with" "children" "recursively"?)? ("having" meta_exp)?
 
-dataset_spec_list: source_spec ("," source_spec)* 
+dataset_spec_list: dataset_spec ("," dataset_spec)* 
 
-source_spec:    qualified_name
+dataset_spec:    qualified_name
     | dataset_pattern
 
-dataset_query:  "datasets" dataset_selector
+dataset_query:  "datasets" datasets_selector
 
 dataset_pattern:    (FNAME ":")? STRING
 

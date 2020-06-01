@@ -184,7 +184,7 @@ class _Converter(Transformer):
     def files_from_datasets(self, args):
         return Node("files_from_datasets", meta=args[0].M)
 
-    def dataset_selector(self, args):
+    def datasets_selector(self, args):
         spec_list = args[0].M
         with_children = False
         recursively = False
@@ -237,16 +237,15 @@ class _Converter(Transformer):
     def constant_list(self, args):
         return args
         
-        
-    def source_spec_list(self, args):
-        return Node("source_spec_list", [], meta=[a.M for a in args])
+    def dataset_spec_list(self, args):
+        return Node("dataset_spec_list", [], meta=[a.M for a in args])
         
     def dataset(self, args):
         return 
 
-    def source_spec(self, args):
+    def dataset_spec(self, args):
         assert len(args) == 1
-        return Node("source_spec", meta=(args[0].T == "dataset_pattern", args[0].M))
+        return Node("dataet_spec", meta=(args[0].T == "dataset_pattern", args[0].M))
             
     def dataset_pattern(self, args):
         if len(args) == 1:
@@ -483,8 +482,9 @@ class _LimitPusher(Descender):
             
 class _MetaExpPusher(Descender):
 
-    def meta_filter(self, node, meta_exp):
-        node_q, node_exp = node.C
+    def file_query(self, node, meta_exp):
+        node_q = node.C[0]
+        node_exp = node.C[1] if len(node.C) == 2 else None
         if meta_exp is None:
             meta_exp = node_exp
         elif node_exp is None:
@@ -787,8 +787,9 @@ class Query(object):
 
 if __name__ == "__main__":
     import sys
-    tree = Query.Parser.parse(open(sys.argv[1], "r").read())
+    tree = Query._Parser.parse(open(sys.argv[1], "r").read())
+    print(tree)
     converted = _Converter().transform(tree)
-    pprint.pprint(converted)
+    print(converted.pretty())
 
         
