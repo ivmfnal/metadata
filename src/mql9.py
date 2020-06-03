@@ -118,6 +118,9 @@ class BasicFileQuery(object):
     def addLimit(self, limit):
         if self.Limit is None:   self.Limit = limit
         else:   self.Limit = min(self.Limit, limit)
+        
+    def apply_params(self, params):
+        self.DatasetSelector.apply_params(params)
 
 class DatasetSelector(object):
 
@@ -139,21 +142,29 @@ class DatasetSelector(object):
     def datasets(self, db, limit=None):
         return DBDataset.apply_dataset_selector(db, self, limit)
         
+    def apply_params(self, params):
+        # apply params from "with ..."
+        default_namespace = params.get("namespace")
+        if default_namespace:
+            self.Patterns = [(match, (namespace or default_namespace, name)) 
+                for match, (namespace, name) in self.Patterns
+            ]
+        
 class _ParamsApplier(Descender):
+    
+    # applies params from "with...", including default namespace
+
+    def basic_file_query(self, node, params):
+        bfq = node.M
+        assert isinstance(bfq, BasicFileQuery)
+        bfq.apply_params(params)
+        return node
 
     def dataset_selector(self, node, params):
-        #print("_ParamsApplier.DataSource: params:", params)
-        if params is not None:
-            assert isinstance(params, dict)
-            default_namespace = params.get("namespace")
-            #print("_ParamsApplier.DataSource: default_namespace", default_namespace)
-            patterns = []
-            meta = node.M
-            assert isinstance(meta, DatasetSelector)
-            for match, (namespace, name) in meta.Patterns:
-                namespace = namespace or default_namespace
-                patterns.append((match, (namespace, name)))
-            meta.Patterns = patterns
+        print("_ParamsApplier.dataset_selector: applying params:", params)
+        selector = meta
+        assert isinstance(selector, DatasetSelector)
+        selector.apply_params(params)
         return node
         
     def named_query(self, node, params):
@@ -232,7 +243,10 @@ class FileQuery(object):
         
         optimized = self.optimize()
         #print("Query.run: optimized: ----\n", optimized.pretty())
-
+        
+        if default_namespace is not None:
+            optimized = _ParamsApplier().walk(optimized, {"namespace":default_namespace})
+        
         optimized = _LimitApplier().walk(optimized, limit)
         #print("Limit %s applied: ----\n" % (limit,), optimized.pretty())
         
@@ -245,7 +259,9 @@ class _Converter(Transformer):
     def query(self, args):
         if len(args) == 2:
             params, query = args
-            q = self._apply_params(query, params)
+            print("_Converter.query(): applying params:", params)
+            q = _ParamsApplier().walk(query, params)
+            #print("_Converter.query(): after applying params:", q.pretty())
         else:
             q = args[0]
             
@@ -256,16 +272,8 @@ class _Converter(Transformer):
         #print("_Converter.query() -> ", out)
         return out
         
-    def _apply_params(self, tree, params):
-        #print("_Converter._apply_params: params:", params)
-        out = _ParamsApplier().walk(tree, params)
-        #print("_Converter._apply_params done")
-        return out
-    
-    def convert(self, tree, default_namespace):
-        tree = self.transform(tree)
-        #print("_Converter.transform: tree:", tree.pretty())
-        return self._apply_params(tree, {"namespace":default_namespace})
+    def convert(self, tree):
+        return self.transform(tree)
         
     def file_query(self, args):
         limit = None
@@ -346,12 +354,6 @@ class _Converter(Transformer):
             return Node("dataset_pattern", meta=[None, args[0].value[1:-1]])
         else:
             return Node("dataset_pattern", meta=[args[0].value, args[1].value[1:-1]])
-        
-    def qualified_name(self, args):
-        if len(args) == 1:
-            return Node("qualified_name", meta=[None, args[0].value])
-        else:
-            return Node("qualified_name", meta=[args[0].value, args[1].value])
         
     def named_query(self, args):
         assert len(args) == 1
@@ -716,6 +718,7 @@ class _FileEvaluator(Ascender):
         return arg.children(with_metadata=True)
 
     def limit(self, args, meta):
+        #print("FileEvaluator.limit(): args:", args)
         assert len(args) == 1 and isinstance(args[0], DBFileSet)
         if meta is not None:
             return args[0].limit(meta)
@@ -839,7 +842,7 @@ class _FileEvaluator(Ascender):
         
 
 
-def parse_query(text, default_namespace=None):
+def parse_query(text):
     # remove comments
     out = []
     for l in text.split("\n"):
@@ -849,11 +852,11 @@ def parse_query(text, default_namespace=None):
     
     parsed = _Parser.parse(text)
     #print("parsed:---\n", parsed)
-    return _Converter().convert(parsed, default_namespace)
+    return _Converter().convert(parsed)
         
 
 if __name__ == "__main__":
-    import sys
+    import sys, traceback
     import psycopg2
     from filters import filters_map
     
@@ -866,9 +869,9 @@ if __name__ == "__main__":
                 q += input("> ")
             qtext = q.split(';', 1)[0]
             print (f"--- query ---\n{qtext}\n-------------")
-            try:    q = parse(qtext)
+            try:    q = parse_query(qtext)
             except Exception as e:
-                print(e)
+                traceback.print_exc()
             else:
                 results = q.run(db, with_meta=True, filters = filters_map)
                 for r in results:
@@ -886,7 +889,7 @@ if __name__ == "__main__":
 
     print (filters_map)
 
-    results = q.run(db, with_meta=False, filters = filters_map)
+    results = q.run(db, with_meta=False, filters = filters_map, limit=5)
     print (results)
     for x in results:
         print(x, x.Metadata)

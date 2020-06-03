@@ -1,10 +1,10 @@
 from webpie import WPApp, WPHandler, Response
-import psycopg2, json, time, secrets, traceback
+import psycopg2, json, time, secrets, traceback, hashlib
 from dbobjects2 import DBFile, DBDataset, DBFileSet, DBNamedQuery, DBUser, DBNamespace, DBRole
 from wsdbtools import ConnectionPool
 from urllib.parse import quote_plus, unquote_plus
 
-from py3 import to_str
+from py3 import to_str, to_bytes
 from mql9 import parse_query
 from signed_token import SignedToken
 from Version import Version
@@ -53,7 +53,7 @@ class GUIHandler(BaseHandler):
         results = False
         if query_text:
         
-            query = parse_query(query_text, default_namespace=namespace or None)
+            query = parse_query(query_text)
             
             try:    parsed = query.parse().pretty()
             except:
@@ -108,7 +108,6 @@ class GUIHandler(BaseHandler):
     
     def query(self, request, relpath, query=None, namespace=None, **args):
             
-            
         namespace = namespace or request.POST.get("default_namespace") or self.App.DefaultNamespace
         #print("namespace:", namespace)
         if query is not None:
@@ -137,9 +136,9 @@ class GUIHandler(BaseHandler):
                         t0 = time.time()
                         if query_text:
                             #print("with_meta=", with_meta)
-                            if True:
-                                results = parse_query(query_text, default_namespace=namespace or None)    \
+                            results = parse_query(query_text)    \
                                     .run(db, self.App.filters(), 
+                                    default_namespace=namespace or None,
                                     limit=1000 if not save_as_dataset else None, 
                                     with_meta=with_meta)
                             url_query = query_text.replace("\n"," ")
@@ -208,10 +207,11 @@ class GUIHandler(BaseHandler):
                     #if len(lst) % 100 == 0: print("lst:", len(lst))
                     break
             files = lst
-            for f in files:
-                if f.Metadata:
-                    for n in f.Metadata.keys():
-                        attr_names.add(n)
+            if with_meta:
+                for f in files:
+                    if f.Metadata:
+                        for n in f.Metadata.keys():
+                            attr_names.add(n)
         #print("Server.query: file list generated")
         resp = self.render_to_response("query.html", 
             attr_names = sorted(list(attr_names)),
@@ -687,8 +687,8 @@ class DataHandler(BaseHandler):
             return "[]", "text/json"
             
         db = self.App.connect()
-        results = parse_query(query_text, default_namespace=namespace or None) \
-            .run(db, self.App.filters(), with_meta=with_meta)
+        results = parse_query(query_text)\
+            .run(db, self.App.filters(), with_meta=with_meta, default_namespace=namespace or None)
         url_query = query_text.replace("\n"," ")
         while "  " in url_query:
             url_query = url_query.replace("  ", " ")
@@ -792,9 +792,12 @@ class App(WPApp):
         # Authentication/authtorization
         #        
         self.Users = cfg["users"]       #   { username: { "passwrord":password }, ...}
-        self.TokenSecret = cfg.get("secret") 
-        if self.TokenSecret is None:    self.TokenSecret = secrets.token_bytes(128)     # used to sign tokens
-        else:                           self.TokenSecret = bytes.fromhex(self.TokenSecret)
+        secret = cfg.get("secret") 
+        if secret is None:    self.TokenSecret = secrets.token_bytes(128)     # used to sign tokens
+        else:         
+            h = hashlib.sha256()
+            h.update(to_bytes(secret))      
+            self.TokenSecret = h.digest()
         self.Tokens = {}                # { token id -> token object }
 
     def connect(self):
@@ -859,7 +862,9 @@ if not config:
     
 config = yaml.load(open(config, "r"), Loader=yaml.SafeLoader)  
 cookie_path = config.get("cookie_path", "/metadata")
-application=App(config, RootHandler, enable_static=True, static_location=config.get("static_path", "./static"))
+static_location = config.get("static_location", "./static")
+print("Server: static_location:", static_location)
+application=App(config, RootHandler, enable_static=True, static_location=static_location)
 application.initJinjaEnvironment(
     tempdirs=[config.get("templates", ".")], 
     globals={
@@ -867,9 +872,10 @@ application.initJinjaEnvironment(
         "GLOBAL_SiteTitle": config.get("site_title", "DEMO Metadata Catalog")
     }
 )
+port = int(config.get("port", 8080))
 
 if __name__ == "__main__":
-    application.run_server(8080)
+    application.run_server(port)
 else:
     # running under uwsgi
     pass

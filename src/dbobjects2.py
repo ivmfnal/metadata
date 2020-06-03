@@ -38,16 +38,11 @@ def limited(iterable, n):
 
 class DBFileSet(object):
     
-    def __init__(self, db, files, limit=None):
+    def __init__(self, db, files=[], limit=None):
         self.DB = db
         self.Files = files
         self.Limit = limit
-        
-    @staticmethod
-    def empty(db):
-        for x in []:
-            yield x
-        
+
     def limit(self, n):
         return DBFileSet(self.DB, self.Files, n)
         
@@ -158,7 +153,7 @@ class DBFileSet(object):
     def from_basic_query(db, basic_file_query, with_metadata, limit):
         datasets = list(basic_file_query.DatasetSelector.datasets(db))
         if not datasets:
-            return DBFileSet.empty(db)
+            return DBFileSet(db)      # empty File Set
         dataset_specs = [(ds.Namespace, ds.Name) for ds in datasets]
         dnf = basic_file_query.wheres_dnf()
         if limit is None:
@@ -594,7 +589,7 @@ class DBDataset(object):
                                         {limit}
                                         """
 
-        print("DBDataset.files_from_multiple_datasets: sql:", sql)
+        #print("DBDataset.files_from_multiple_datasets: sql:", sql)
         c = db.cursor()
         c.execute(sql, (list(dataset_namespaces), list(dataset_names), specs))
         return DBFileSet.from_tuples(db, fetch_generator(c))
@@ -892,7 +887,7 @@ class DBRole(object):
             if isinstance(user, DBUser):    user = user.Username
             out = (r for r in out if user in r)
         out = list(out)
-        print("DBRole.list:", out)
+        #print("DBRole.list:", out)
         return out
         
     def __contains__(self, user):
