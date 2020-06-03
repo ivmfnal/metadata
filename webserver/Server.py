@@ -2,11 +2,10 @@ from webpie import WPApp, WPHandler, Response
 import psycopg2, json, time, secrets, traceback
 from dbobjects2 import DBFile, DBDataset, DBFileSet, DBNamedQuery, DBUser, DBNamespace, DBRole
 from wsdbtools import ConnectionPool
-#from ConnectionPool import ConnectionPool
 from urllib.parse import quote_plus, unquote_plus
 
 from py3 import to_str
-from mql7 import Query
+from mql9 import parse_query
 from signed_token import SignedToken
 from Version import Version
 
@@ -54,7 +53,7 @@ class GUIHandler(BaseHandler):
         results = False
         if query_text:
         
-            query = Query(query_text, default_namespace=namespace or None)
+            query = parse_query(query_text, default_namespace=namespace or None)
             
             try:    parsed = query.parse().pretty()
             except:
@@ -139,7 +138,7 @@ class GUIHandler(BaseHandler):
                         if query_text:
                             #print("with_meta=", with_meta)
                             if True:
-                                results = Query(query_text, default_namespace=namespace or None)    \
+                                results = parse_query(query_text, default_namespace=namespace or None)    \
                                     .run(db, self.App.filters(), 
                                     limit=1000 if not save_as_dataset else None, 
                                     with_meta=with_meta)
@@ -688,7 +687,7 @@ class DataHandler(BaseHandler):
             return "[]", "text/json"
             
         db = self.App.connect()
-        results = Query(query_text, default_namespace=namespace or None) \
+        results = parse_query(query_text, default_namespace=namespace or None) \
             .run(db, self.App.filters(), with_meta=with_meta)
         url_query = query_text.replace("\n"," ")
         while "  " in url_query:

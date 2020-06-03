@@ -839,7 +839,7 @@ class _FileEvaluator(Ascender):
         
 
 
-def parse(text, default_namespace=None):
+def parse_query(text, default_namespace=None):
     # remove comments
     out = []
     for l in text.split("\n"):
@@ -851,36 +851,36 @@ def parse(text, default_namespace=None):
     #print("parsed:---\n", parsed)
     return _Converter().convert(parsed, default_namespace)
         
-def interactive(db):
-    from filters import filters_map
-    
-    while True:
-        q = ""
-        while not ';' in q:
-            q += input("> ")
-        qtext = q.split(';', 1)[0]
-        print (f"--- query ---\n{qtext}\n-------------")
-        try:    q = parse(qtext)
-        except Exception as e:
-            print(e)
-        else:
-            results = q.run(db, with_meta=True, filters = filters_map)
-            for r in results:
-                print (r)
-            
-        
 
 if __name__ == "__main__":
     import sys
     import psycopg2
     from filters import filters_map
     
+    def interactive(db):
+        from filters import filters_map
+    
+        while True:
+            q = ""
+            while not ';' in q:
+                q += input("> ")
+            qtext = q.split(';', 1)[0]
+            print (f"--- query ---\n{qtext}\n-------------")
+            try:    q = parse(qtext)
+            except Exception as e:
+                print(e)
+            else:
+                results = q.run(db, with_meta=True, filters = filters_map)
+                for r in results:
+                    print (r)
+            
+        
     db = psycopg2.connect(sys.argv[2])
 
     interactive(db)
     
     qtext = open(sys.argv[1], "r").read()
-    q = parse(qtext)
+    q = parse_query(qtext)
     
     #print (q)
 
@@ -891,27 +891,6 @@ if __name__ == "__main__":
     for x in results:
         print(x, x.Metadata)
 
-    
-    sys.exit(0)
-    
-    q = Query()
-
-    converted = q.parse()
-    tree = q.Tree
-    print("----- tre -----")
-    print(tree)
-    print("----- converted -----")
-    print(converted.pretty())
-    
-    q.skip_assembly()
-    
-    optimized = q.optimize()
-    print("----- optimized -----")
-    print(optimized.pretty())
-    
-    results = q.run(db, with_meta=False)
-    for x in results:
-        print(x)
     
     
 
