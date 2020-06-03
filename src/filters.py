@@ -1,3 +1,7 @@
+#
+# Common filters
+#
+
 def sample(inputs, params):
     file_set = inputs[0]
     fraction = params[0]
@@ -18,5 +22,5 @@ def limit(inputs, params):
         n -= 1
 
         
-    
+filters_map = dict(sample=sample, limit=limit)
             

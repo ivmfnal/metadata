@@ -24,7 +24,18 @@ def first_not_empty(lst):
             return v
     else:
         return val
-                
+        
+def limited(iterable, n):
+    for f in iterable:
+        if n is None:
+            yield f
+        else:
+            if n or n > 0:
+                yield f
+            else:
+                break
+            n -= 1
+
 class DBFileSet(object):
     
     def __init__(self, db, files, limit=None):
@@ -58,19 +69,8 @@ class DBFileSet(object):
         )
         
     def __iter__(self):
-        if self.Limit is None:
-            return self.Files
-        else:
-            def limited(lst, n):
-                for f in lst:
-                    if n > 0:
-                        yield f
-                    else:
-                        break
-                    n -= 1
-            return limited(self.Files, self.Limit)
+        return limited(self.Files, self.Limit)
                         
-        
     def as_list(self):
         # list(DBFileSet) should work too
         return list(self.Files)
@@ -501,6 +501,9 @@ class DBDataset(object):
         self.Monotonic = monotonic
         self.Creator = None
         self.CreatedTimestamp = None
+    
+    def __str__(self):
+        return "DBDataset(%s:%s)" % (self.Namespace, self.Name)
         
     def save(self, do_commit = True):
         c = self.DB.cursor()
@@ -622,7 +625,7 @@ class DBDataset(object):
                                         {limit}
                                         """
 
-        print("DBDataset.list_files: sql:", sql)
+        #print("DBDataset.list_files: sql:", sql)
         self.SQL = sql 
         c = self.DB.cursor()
         c.execute(sql)
@@ -650,14 +653,14 @@ class DBDataset(object):
         return json.dumps(self.to_jsonable())
         
     @staticmethod
-    def list_datasets(db, patterns, with_children, recursively, having):
+    def list_datasets(db, patterns, with_children, recursively, having, limit=None):
         #
         # does not use "having" yet !
         #
         datasets = set()
         c = db.cursor()
         for match, (namespace, name) in patterns:
-            print("list_datasets: match, namespace, name:", match, namespace, name)
+            #print("list_datasets: match, namespace, name:", match, namespace, name)
             if match:
                 c.execute("""select namespace, name from datasets
                             where namespace = %s and name like %s""", (namespace, name))
@@ -665,7 +668,7 @@ class DBDataset(object):
                 c.execute("""select namespace, name from datasets
                             where namespace = %s and name = %s""", (namespace, name))
             for namespace, name in c.fetchall():
-                print("list_datasets: add", namespace, name)
+                #print("list_datasets: add", namespace, name)
                 datasets.add((namespace, name))
         #print("list_datasets: with_children:", with_children)
         if with_children:
@@ -686,16 +689,15 @@ class DBDataset(object):
                     parents = this_level_children - parents_scanned
                 else:
                     parents = set()
-        datasets = (DBDataset.get(db, namespace, name) for namespace, name in datasets)
-        return datasets
+        return limited((DBDataset.get(db, namespace, name) for namespace, name in datasets), limit)
 
     @staticmethod    
-    def apply_dataset_selector(db, dataset_selector):
+    def apply_dataset_selector(db, dataset_selector, limit):
         patterns = dataset_selector.Patterns
         with_children = dataset_selector.WithChildren
         recursively = dataset_selector.Recursively
         having = dataset_selector.Having
-        return DBDataset.list_datasets(db, patterns, with_children, recursively, having)
+        return DBDataset.list_datasets(db, patterns, with_children, recursively, having, limit)
         
 class DBNamedQuery(object):
 

@@ -1,12 +1,10 @@
 MQL_Grammar = """
-?query:  ("with" param_def_list)? params_applied_query
+query:  ("with" param_def_list)? params_applied_query
 
-?params_applied_query:  limited_file_query              
+?params_applied_query:  file_query              
     | dataset_query                            
 
-limited_file_query: file_query ("limit" SIGNED_INT)?
-
-file_query: filterable_file_query ("where" meta_exp)?
+!file_query: filterable_file_query ("where" meta_exp)? ("limit" SIGNED_INT)?
 
 filterable_file_query:  "files"? "from" datasets_selector    -> basic_file_query
     |   "union" "(" file_query_list ")"                  -> union
