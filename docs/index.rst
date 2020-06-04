@@ -11,7 +11,7 @@ Welcome to MetadataDB's documentation!
    :caption: Contents:
    
    query_language
-
+   REST_API
 
 
 Indices and tables

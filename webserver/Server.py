@@ -459,14 +459,14 @@ class DataHandler(BaseHandler):
 
     def dataset(self, request, relpath, dataset=None, **args):
         db = self.App.connect()
-        namespace, name = dataset.split(":", 1)
+        namespace, name = (dataset or relpath).split(":", 1)
         dataset = DBDataset.get(db, namespace, name)
         dct = dataset.to_jsonable()
         dct["file_count"] = dataset.nfiles
         return json.dumps(dct), "text/json"
             
-    def dataset_count(self, request, relpath, **args):
-        namespace, name = relpath.split(":", 1)
+    def dataset_count(self, request, relpath, dataset=None, **args):
+        namespace, name = (dataset or relpath).split(":", 1)
         db = self.App.connect()
         nfiles = DBDataset(db, namespace, name).nfiles
         return '{"nfiles":%d}\n' % (nfiles,), {"Content-Type":"text/json",
@@ -636,10 +636,11 @@ class DataHandler(BaseHandler):
         return json.dumps(out), "text/json"
                 
 
-    def update_file(self, request, relpath, fid=None, **args):
+    def update_file(self, request, relpath, spec=None, fid=None, **args):
         # update file metadata
         # method: PUT, URI: .../file/namespace:name or
         #              URI: .../file?fid=fid
+        #              URI: .../file?spec=namespace:name
         # request body = metadata in JSON format
         if (not relpath) == (not fid):
                 return 403, "Either namespace:name or FID must be specified, but not both"
@@ -680,37 +681,44 @@ class DataHandler(BaseHandler):
             #print("query from POST:", query_text)
         else:
             query_text = request.body
-            #print("query from body:", query_text)
+            print("query from body:", query_text)
         query_text = to_str(query_text or "")
         t0 = time.time()
         if not query_text:
             return "[]", "text/json"
             
         db = self.App.connect()
-        results = parse_query(query_text)\
-            .run(db, self.App.filters(), with_meta=with_meta, default_namespace=namespace or None)
-        url_query = query_text.replace("\n"," ")
-        while "  " in url_query:
-            url_query = url_query.replace("  ", " ")
-        url_query = quote_plus(url_query)
-        if namespace: url_query += "&namespace=%s" % (namespace,)
+        query = parse_query(query_text)
+        query_type = query.Type
+        results = query.run(db, filters=self.App.filters(), with_meta=with_meta, default_namespace=namespace or None)
 
         if not results:
             return "[]", "text/json"
-
-        if with_meta:
-            data = (
-                { 
-                    "name":f.Name, "namespace":f.Namespace,
-                    "fid":f.FID,
-                    "metadata": f.Metadata or {}
-                } for f in results )
+            
+        if query_type == "file":
+            if with_meta:
+                data = (
+                    { 
+                        "name":f.Name, "namespace":f.Namespace,
+                        "fid":f.FID,
+                        "metadata": f.Metadata or {}
+                    } for f in results 
+                )
+            else:
+                data = (
+                    { 
+                        "name":f.Name, "namespace":f.Namespace,
+                        "fid":f.FID
+                    } for f in results 
+                )
         else:
             data = (
-                { 
-                    "name":f.Name, "namespace":f.Namespace,
-                    "fid":f.FID
-                } for f in results )
+                    { 
+                        "name":d.Name, "namespace":d.Namespace,
+                        "parent_namespace":d.ParentNamespace,
+                        "parent_name":d.ParentName
+                    } for d in results 
+            )
         return self.json_chunks(data), "text/json"
         
     def named_queries(self, request, relpath, namespace=None, **args):
@@ -723,6 +731,9 @@ class AuthHandler(WPHandler):
 
     def whoami(self, request, relpath, **args):
         return str(self.App.user_from_request(request)), "text/plain"
+        
+    def token(self, request, relpath, **args):
+        return self.App.encoded_token_from_request(request)+"\n"
         
     def auth(self, request, relpath, redirect=None, **args):
         from rfc2617 import digest_server
@@ -780,7 +791,12 @@ class App(WPApp):
         WPApp.__init__(self, root, **args)
         self.Cfg = cfg
         self.DefaultNamespace = cfg.get("default_namespace")
-        self.DB = ConnectionPool(postgres=cfg["database"]["connstr"], max_idle_connections=3)
+        
+        self.DBCfg = cfg["database"]
+        
+        connstr = "host=%(host)s port=%(port)s dbname=%(dbname)s user=%(user)s password=%(password)s" % self.DBCfg
+        
+        self.DB = ConnectionPool(postgres=connstr, max_idle_connections=3)
         self.Filters = {}
         if "filters" in cfg:
             filters_mod = __import__(cfg["filters"].get("module", "filters"), 
@@ -817,6 +833,13 @@ class App(WPApp):
         try:    token = SignedToken.decode(encoded, self.TokenSecret, verify_times=True)
         except: return None             # invalid token
         return token.Payload.get("user")
+
+    def encoded_token_from_request(self, request):
+        encoded = request.cookies.get("auth_token") or request.headers.get("X-Authentication-Token")
+        if not encoded: return None
+        try:    token = SignedToken.decode(encoded, self.TokenSecret, verify_times=True)
+        except: return None             # invalid token
+        return encoded
 
     def response_with_auth_cookie(self, user, redirect):
         #print("response_with_auth_cookie: user:", user, "  redirect:", redirect)

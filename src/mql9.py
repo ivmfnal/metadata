@@ -195,6 +195,8 @@ class _ParamsApplier(Descender):
         
 class DatasetQuery(object):
     
+    Type = "dataset"
+    
     def __init__(self, tree):
         self.Tree = tree
 
@@ -202,7 +204,9 @@ class DatasetQuery(object):
         return _DatasetEvaluator(db, with_meta, limit).walk(self.Tree)
         
 class FileQuery(object):
-    
+
+    Type = "dataset"
+
     def __init__(self, tree):
         self.Tree = tree
         self.Assembled = self.Optimized = None
@@ -663,7 +667,6 @@ class _DatasetEvaluator(Ascender):
         self.Limit = limit
         
     def dataset_query(self, args, meta):
-        
         return args[0]
     
     def datasets_selector(self, args, meta):
