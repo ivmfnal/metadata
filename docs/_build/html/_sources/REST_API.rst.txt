@@ -27,7 +27,7 @@ Extract token as string:
 
     curl -b cookie.jar -o token.file "http://host:port/auth/token"
 
-save the token somewhere
+this will save the token in the "token.file"
 
 Use Token
 ~~~~~~~~~
