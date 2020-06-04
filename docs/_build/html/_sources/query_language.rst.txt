@@ -80,7 +80,7 @@ Queries can be combined using boolean operations *union*, *join*, and subtractio
 .. code-block:: sql
 
         union(
-                files fromrom MC:Cosmics
+                files from MC:Cosmics
                         where p > 0.5 and p < 1.5 
                 files from MC:Beam where e = 10
         )

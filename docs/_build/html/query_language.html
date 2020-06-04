@@ -90,7 +90,7 @@ character.</p>
 <h3>Combining Queries<a class="headerlink" href="#combining-queries" title="Permalink to this headline">¶</a></h3>
 <p>Queries can be combined using boolean operations <em>union</em>, <em>join</em>, and subtraction to produce new queries:</p>
 <div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="k">union</span><span class="p">(</span>
-        <span class="n">files</span> <span class="n">fromrom</span> <span class="n">MC</span><span class="p">:</span><span class="n">Cosmics</span>
+        <span class="n">files</span> <span class="k">from</span> <span class="n">MC</span><span class="p">:</span><span class="n">Cosmics</span>
                 <span class="k">where</span> <span class="n">p</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">.</span><span class="mi">5</span> <span class="k">and</span> <span class="n">p</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">.</span><span class="mi">5</span>
         <span class="n">files</span> <span class="k">from</span> <span class="n">MC</span><span class="p">:</span><span class="n">Beam</span> <span class="k">where</span> <span class="n">e</span> <span class="o">=</span> <span class="mi">10</span>
 <span class="p">)</span>
