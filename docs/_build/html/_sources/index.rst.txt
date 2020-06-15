@@ -10,7 +10,7 @@ Welcome to MetadataDB's documentation!
    :maxdepth: 2
    :caption: Contents:
    
-   query_language
+   mql
    REST_API
 
 
