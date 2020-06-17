@@ -87,6 +87,13 @@ class SignedToken(object):
         self.IssuedAt = time.time()
         self.NotBefore = not_before if (not_before is None or not_before > 365*24*3600) else self.IssuedAt + not_before
         self.Expiration = expiration if (expiration is None or expiration > 365*24*3600) else self.IssuedAt + expiration
+        self.Encoded = None
+        
+    def __getitem__(self, name):
+        return self.Payload[name]
+        
+    def __setitem__(self, name, value):
+        self.Payload[name] = value
         
     def __str__(self):
         return "SignedToken(%s %s iat=%s, nbf=%s, exp=%s, payload=%s)" % (self.TID, self.Alg, self.IssuedAt, self.NotBefore, self.Expiration,
@@ -128,7 +135,10 @@ class SignedToken(object):
         h.update(text)
         return h.digest()
 
-    def encode(self, secret, key=None):
+    def encode(self, secret=None, key=None):
+        if secret is None:
+            assert self.Encoded is not None
+            return self.Encoded
         #print("encode: secret:", secret)
         payload = self.serialize(self.Payload)      # this will be bytes
         header = {"iat":self.IssuedAt, "exp":self.Expiration, "alg":self.Alg, "nbf":self.NotBefore, "tid":self.TID}
@@ -141,13 +151,17 @@ class SignedToken(object):
             header["enc"] = {"ini":base64.b64encode(iv).decode("utf-8", "ignore"), "len":length, "alg":"AES"}
         header = self.serialize(header)
         signature = self.signature(self.Alg, header, payload, secret)
-        return self.pack(header, payload, signature)
+        encoded = self.Encoded = self.pack(header, payload, signature)
+        return encoded
         
     @staticmethod
     def decode(txt, secret=None, verify_times=False, leeway=0, key=None):
+        #print("SignedToken.decode(%s)" % (txt,))
         header, payload, signature = SignedToken.unpack(txt)
-        #print ("token.decode:", header, payload, signature)
+        #print("SignedToken.decode(): unpacked:", header, payload, signature)
         header_decoded = SignedToken.deserialize(header)
+        #print("SignedToken.decode(): header_decoded:", header_decoded)
+        
         try:    alg = header_decoded["alg"]
         except: raise SignedTokenHeaderError
         exp = header_decoded.get("exp")
@@ -170,7 +184,7 @@ class SignedToken(object):
         if enc is not None:
             if isinstance(key, str):    key = key.encode("utf-8")
             assert key is not None and len(key) == 16
-            c = crypt(key, )
+            c = crypt(key)
             l = enc["len"]
             iv = base64.b64decode(enc["ini"])
             payload = c.decrypt(payload, iv, l)
@@ -181,6 +195,7 @@ class SignedToken(object):
         token.IssuedAt = iat
         token.Alg = alg
         token.Header = header_decoded
+        token.Encoded = to_bytes(txt)
         return token
         
 class TokenBox(object):

@@ -6,7 +6,7 @@ from token_lib import TokenLib
 
 Usage = """
 Usage: 
-    metacat [-c <config file>] dataset <command> [<options>] ...
+    metacat dataset <command> [<options>] ...
     
     Commands and options:
     
@@ -19,7 +19,7 @@ Usage:
         show [<options>] <namespace>:<name>
 """
 
-def do_list(config, tl, args):
+def do_list(config, server_url, tl, args):
     opts, args = getopt.getopt(args, "v", ["--verbose"])
     if args:
         patterns = args
@@ -27,7 +27,6 @@ def do_list(config, tl, args):
         patterns = ["*"]
     opts = dict(opts)
     verbose = "-v" in opts or "--verbose" in opts
-    server_url = config["Server"]["URL"]
     response = urlopen(server_url + "/data/datasets?with_file_counts=%s" % ("yes" if verbose else "no"))
     output = json.loads(response.read())
     for item in output:
@@ -50,20 +49,18 @@ def do_list(config, tl, args):
                     
                 
     
-def do_show(config, tl, args):
-    server_url = config["Server"]["URL"]
+def do_show(config, server_url, tl, args):
     response = urlopen(server_url + "/data/dataset?dataset=%s" % (args[0],))
     output = json.loads(response.read())
     print(output)
     
-def do_create(config, tl, args):
+def do_create(config, server_url, tl, args):
     opts, args = getopt.getopt(args, "p:", ["--parent="])
     opts = dict(opts)
     
     dataset_spec = args[0]
     
     parent_spec = opts.get("-p") or opts.get("--parent")
-    server_url = config["Server"]["URL"]
     url = server_url + "/data/create_dataset?dataset=%s" % (dataset_spec,)
     if parent_spec:
         url += "&parent=%s" % (parent_spec,)
@@ -73,19 +70,23 @@ def do_create(config, tl, args):
         print("No valid token found. Please obtain new token")
         sys.exit(1)
         
-    request = Request(url, headers={"X-Authentication-Token": token})
+    request = Request(url, headers={"X-Authentication-Token": token.encode()})
     response = urlopen(request)
     output = json.loads(response.read())
     print(output)
     
-def do_dataset(config, args):
+def do_dataset(config, server_url, args):
+    if not args:
+        print(Usage)
+        sys.exit(2)
+        
     command = args[0]
     tl = TokenLib()
     return {
         "list":     do_list,
         "create":   do_create,
         "show":     do_show
-    }[command](config, tl, args[1:])
+    }[command](config, server_url, tl, args[1:])
     
     
  

@@ -205,7 +205,7 @@ class DatasetQuery(object):
         
 class FileQuery(object):
 
-    Type = "dataset"
+    Type = "file"
 
     def __init__(self, tree):
         self.Tree = tree
@@ -336,7 +336,7 @@ class _Converter(Transformer):
         
     def string_constant(self, args):
         s = args[0].value
-        if s[0] == '"':
+        if s[0] in ('"', "'"):
             s = s[1:-1]
         return s
         

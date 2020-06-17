@@ -27,18 +27,20 @@ class TokenLib(object):
                 except SignedTokenImmatureError:
                     pass
                 if token is not None:
-                    out[url] = encoded
+                    out[url] = token
             return out
 
         def save_tokens(self):
             token_file = self.Path
             f = open(token_file, "w")
-            for url, encoded  in self.Tokens.items():
-                f.write("%s %s\n" % (url, encoded))
+            for url, token  in self.Tokens.items():
+                f.write("%s %s\n" % (url, to_str(token.encode())))
             f.close()
 
-        def __setitem__(self, url, encoded):
-                self.Tokens[url] = encoded
+        def __setitem__(self, url, token):
+                if isinstance(token, (str, bytes)):
+                    token = SignedToken.decode(token)
+                self.Tokens[url] = token
                 self.save_tokens()
 
         def __getitem__(self, url):

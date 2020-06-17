@@ -9,47 +9,46 @@ import getpass, requests
 
 Usage = """
 Usage: 
-    metacat [-c <config file>] login [-m <mechanism>] <username>
-    metacat [-c <config file>] login -l
-    metacat [-c <config file>] login -v
-
-    Mechanisms: password, x509 (not implemented yet)
+    metacat auth subommands and options:
+    
+        login [-m <mechanism>] <username>               - request authentication token
+            Only "password" mechanism is implemnted
+        whoami                                          - verify token
+        list                                            - list tokens
 """
 
-def do_auth(config, args):
+def do_list(config, server_url, args):
+    server_url = server_url
+    tl = TokenLib()
+    for url, token in tl.items():
+            print("%s %s %s %s" % (token.TID, url, token["user"], time.ctime(token.Expiration)))
 
-    server_url = config["Server"]["URL"]
+def do_whoami(config, server_url, args):
+
+    server_url = server_url
+    tl = TokenLib()
+    token = tl.get(server_url)
+    #print("token:", repr(token))
+    if not token:
+            print("No token found for server %s" % (server_url,))
+            sys.exit(1)
+    url = server_url + "/auth/verify"
+    response = requests.get(url, headers={
+            "X-Authentication-Token":token.encode()
+    })
+    if response.status_code/100 == 2:
+            print ("%s %s" % (token["user"], time.ctime(token.Expiration)))
+    else:
+            print (response.text)
+            sys.exit(1)
+
+
+def do_login(config, server_url, args):
+
+    server_url = server_url
 
     tl = TokenLib()
 
-    opts, args = getopt.getopt(args, "m:u:lv")
-    opts = dict(opts)
-
-    if "-l" in opts:
-        for url, token in tl.items():
-                token = SignedToken.decode(token)
-                print("%s %s %s %s" % (url, token.Payload["user"], time.ctime(token.Expiration), token.TID))
-        sys.exit(0)
-
-    if "-v" in opts:
-        token = to_str(tl.get(server_url))
-        #print("token:", repr(token))
-        if not token:
-                print("No token found for server %s" % (server_url,))
-                sys.exit(1)
-        url = server_url + "/auth/verify"
-        response = requests.get(url, headers={
-                "X-Authentication-Token":token
-        })
-        if response.status_code/100 == 2:
-                print ("OK")
-                sys.exit(0)
-        else:
-                print (response.text)
-                sys.exit(1)
-
-        
-        
     url = server_url + "/auth/auth"
     username = args[0]
 
@@ -59,4 +58,22 @@ def do_auth(config, args):
     if response.status_code != 200:
         print(response.text)
     token = response.headers["X-Authentication-Token"]
+    token = SignedToken.decode(token)
+    #print("Encoded token:", token)
     tl[server_url] = token
+    print ("%s %s" % (token["user"], time.ctime(token.Expiration)))
+    
+
+
+def do_auth(config, server_url, args):
+    if not args:
+        print(Usage)
+        sys.exit(2)
+        
+    command = args[0]
+    return {
+        "list":         do_list,
+        "login":        do_login,
+        "whoami":       do_whoami
+    }[command](config, server_url, args[1:])
+

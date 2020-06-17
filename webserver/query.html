@@ -79,12 +79,43 @@
     </table>
 </form>
 
-
-    
-{% if show_files %}
+{% if show_datasets %}
     <div class=headline>Query results</div>
     <p>Runtime: {{"%.3f"|format(runtime)}} seconds<br/>
-        Files: {{files|length}} (results in GUI are always limited to 1000 files)<br/>
+        Datasets: {{datasets|length}} (results in GUI are always limited to 1000 results)<br/>
+        JSON:&nbsp;<a href="{{GLOBAL_AppTopPath}}/data/query?with_meta=yes&query={{url_query}}">with</a> 
+        <a href="{{GLOBAL_AppTopPath}}/data/query?with_meta=no&query={{url_query}}">without</a> metadata
+    </p>
+
+    <h3>Datasets</h3>
+    <table class="data">
+        <tr>
+            <th>Dataset</th>{% if attr_names %}<th>Metadata</th>{% endif %}
+        </tr>
+        {% for d in datasets|sort(attribute="Name") %}
+            <tr>
+                <td>{{d.Namespace}}:{{d.Name}}</a></td>
+                {#
+					{% if attr_names %}
+                    <td>
+                        {% if f.Metadata %}
+                            {% for n in attr_names %}
+                                {% if f.Metadata[n] is not none %}
+                                    {{n}}:&nbsp;{{f.Metadata[n]}}<br/>
+                                {% endif %}
+                            {% endfor %}
+                        {% endif %}
+                    </td>
+                	{% endif %}
+				#}
+            </tr>
+        {% endfor %}
+    </table>
+    
+{% elif show_files %}
+    <div class=headline>Query results</div>
+    <p>Runtime: {{"%.3f"|format(runtime)}} seconds<br/>
+        Files: {{files|length}} (results in GUI are always limited to 1000 results)<br/>
         JSON:&nbsp;<a href="{{GLOBAL_AppTopPath}}/data/query?with_meta=yes&query={{url_query}}">with</a> 
         <a href="{{GLOBAL_AppTopPath}}/data/query?with_meta=no&query={{url_query}}">without</a> metadata
     </p>

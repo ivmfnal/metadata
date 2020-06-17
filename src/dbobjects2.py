@@ -9,6 +9,17 @@ class NotFoundError(Exception):
 
     def __str__(self):
         return "Not found error: %s" % (self.Message,)
+        
+def parse_name(name, default_namespace):
+    words = name.split(":", 1)
+    if len(words) < 2 or not words[0]:
+        assert not not default_namespace, "Null default namespace"
+        ns = default_namespace
+        name = words[-1]
+    else:
+        ns, name = words
+    return ns, name
+                
 
 def fetch_generator(c):
     while True:
@@ -224,8 +235,6 @@ class DBFile(object):
             raise AlreadyExistsError("%s:%s" % (self.Namespace, self.Name))
         return self
         
-    
-                            
     @staticmethod
     def get(db, fid = None, namespace = None, name = None, with_metadata = False):
         assert (fid is not None) != (namespace is not None or name is not None), "Can not specify both FID and namespace.name"
@@ -246,8 +255,11 @@ class DBFile(object):
             
     @staticmethod
     def exists(db, fid = None, namespace = None, name = None):
-        assert (fid is not None) != (namespace is not None or name is not None), "Can not specify both FID and namespace.name"
-        assert (namespace is None) == (name is None)
+        print("DBFile.exists:", fid, namespace, name)
+        if fid is not None:
+            assert (namespace is None) and (name is None),  "If FID is specified, namespace and name must be null"
+        else:
+            assert (namespace is not None) and (name is not None), "Both namespace and name must be specified"
         c = db.cursor()
         if fid is not None:
             c.execute("""select namespace, name 
@@ -308,8 +320,19 @@ class DBFile(object):
         if with_metadata:
             data["metadata"] = self.metadata()
         if with_relations:
-            data["parents"] = [p.FID for p in self.parents()]
-            data["children"] = [c.FID for c in self.children()]
+            data["parents"] = [{
+                "fid":p.FID,
+                "namespace":p.Namespace,
+                "name":p.Name
+            } for p in self.parents()]
+            data["children"] = [{
+                "fid":c.FID,
+                "namespace":c.Namespace,
+                "name":c.Name
+            } for c in self.children()]
+            data["datasets"] = [{
+                "namespace":ds.Namespace, "name":ds.Name
+            } for ds in self.datasets()]
         return data
 
     def to_json(self, with_metadata = False, with_relations=False):
@@ -524,12 +547,13 @@ class DBDataset(object):
         if do_commit:   c.execute("commit")
         return self
         
-    def add_files(self, files):
+    def add_files(self, files, do_commit=True):
         c = self.DB.cursor()
         c.executemany(f"""
             insert into files_datasets(file_id, dataset_namespace, dataset_name) values(%s, '{self.Namespace}', '{self.Name}')
                 on conflict do nothing""", ((f.FID,) for f in files))
-        c.execute("commit")
+        if do_commit:
+            c.execute("commit")
         return self
         
         

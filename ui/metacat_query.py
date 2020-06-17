@@ -1,4 +1,4 @@
-import sys, getopt, os, json
+import sys, getopt, os, json, pprint
 from urllib.request import urlopen, Request
 from urllib.parse import quote_plus, unquote_plus
 from py3 import to_bytes, to_str
@@ -8,11 +8,12 @@ import requests
 
 Usage = """
 Usage: 
-    metacat [-c <config file>] list <options> "<MQL query>"
-    metacat [-c <config file>] list <options> -q|--query <MQL query file>
+    metacat query <options> "<MQL query>"
+    metacat query <options> -f <MQL query file>
 
     Options:
         -j|--json                           - print raw JSON output
+        -p|--pretty                         - pretty-print metadata
         -i|--ids                            - print file ids instead of names
         -s|--summary                        - print only summary information
         -m|--metadata=[<field>,...]         - print metadata fields
@@ -22,13 +23,13 @@ Usage:
         -n|--namespace=<default namespace>  - default namespace for the query
 """
 
-def do_list(config, args):
-    opts, args = getopt.getopt(args, "jism:n:", ["json", "ids","summary","metadata=","namespace="])
+def do_query(config, server_url, args):
+    opts, args = getopt.getopt(args, "jism:n:pf:", ["json", "ids","summary","metadata=","namespace=","pretty"])
     opts = dict(opts)
 
     #print("opts:", opts,"    args:", args)
     
-    url = config["Server"]["URL"] + "/data/query"
+    url = server_url + "/data/query"
     params = []
     namespace = opts.get("-n") or opts.get("--namespace")
     if namespace:
@@ -46,29 +47,33 @@ def do_list(config, args):
     if args:
         query_text = args[0]
     else:
-        query_file = opts.get("-q") or opts.get("--query")
+        query_file = opts.get("-f")
         if not query_file:
             print(Usage)
             sys.exit(2)
         query_text = to_str(open(query_file, "r").read())
 
     #print("query_text: %s" % (query_text,))
-    request = Request(url, data=to_bytes(query_text))
-    response = urlopen(request)
+    response = requests.get(url, data=to_bytes(query_text))
     #print(response)
     
-    status = response.getcode()
+    status = response.status_code
     if status/100 != 2:
-        print("Error: ", status, "\n", response.read())
+        print("Error: ", status, "\n", response.text)
         sys.exit(1)
 
-    body = response.read()
+    body = response.text
 
     if "--json" in opts or "-j" in opts:
-        print(body)
+        print(to_str(body))
         sys.exit(0)
 
     out = json.loads(body)
+    
+    if "--pretty" in opts or "-p" in opts:
+        meta = sorted(out, key=lambda x: x["namespace"]+":"+x["name"])
+        pprint.pprint(meta)
+        sys.exit(0)
 
     #print("response data:", out)
     

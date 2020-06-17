@@ -63,12 +63,14 @@ WORD: LETTER ("_"|LETTER|DIGIT)*
 
 CMPOP: ">" | "<" | ">=" | "<=" | "==" | "=" | "!=" | "~~" | "~~*" | "!~~" | "!~~*" 
 
-BOOL: "true"i | "false"i                         
+BOOL: "true"i | "false"i
+
+STRING : /("(?!"").*?(?<!\\\\)(\\\\\\\\)*?"|'(?!'').*?(?<!\\\\)(\\\\\\\\)*?')/i
 
 %import common.CNAME
 %import common.SIGNED_INT
 %import common.SIGNED_FLOAT
-%import common.ESCAPED_STRING       -> STRING
+
 %import common.WS
 %import common.LETTER
 %import common.DIGIT
