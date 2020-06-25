@@ -1,8 +1,7 @@
 import sys, getopt, os, json, pickle, time
 from urllib.request import urlopen, Request
 from urllib.parse import quote_plus, unquote_plus
-from py3 import to_bytes, to_str
-from signed_token import SignedToken, SignedTokenExpiredError, SignedTokenImmatureError
+from metacat.util import to_bytes, to_str, SignedToken, SignedTokenExpiredError, SignedTokenImmatureError
 from token_lib import TokenLib
 from requests.auth import HTTPDigestAuth
 import getpass, requests
@@ -37,7 +36,8 @@ def do_whoami(config, server_url, args):
             "X-Authentication-Token":token.encode()
     })
     if response.status_code/100 == 2:
-            print ("%s %s" % (token["user"], time.ctime(token.Expiration)))
+            print ("User:   ",token["user"])
+            print ("Expires:", time.ctime(token.Expiration))
     else:
             print (response.text)
             sys.exit(1)

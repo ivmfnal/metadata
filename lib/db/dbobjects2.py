@@ -782,8 +782,8 @@ class DBUser(object):
         return "DBUser(%s, %s, %s, %s)" % (self.Username, self.Name, self.EMail, self.Flags)
         
     __repr__ = __str__
-        
-    def save(self):
+    
+    def save(self, do_commit=True):
         c = self.DB.cursor()
         c.execute("""
             insert into users(username, name, email, flags) values(%s, %s, %s, %s)
@@ -795,8 +795,13 @@ class DBUser(object):
         c.execute("delete from authenticators where username=%s", (self.Username,))
         c.executemany("insert into authenticators(username, type, secrets) values(%s, %s, %s)",
             [(self.Username, typ, lst) for typ, lst in self.Authenticators.items()])
-        c.execute("commit")
+        if do_commit:
+            c.execute("commit")
         return self
+
+    def set_authenticators(self, typ, auth_list):
+        assert isinstance(auth_list, list)
+        self.Authenticators[typ] = auth_list
         
     @staticmethod
     def get(db, username):
@@ -812,6 +817,9 @@ class DBUser(object):
         c.execute("""select type, secrets from authenticators where username=%s""", (username,))
         u.Authenticators = {typ:secrets for typ, secrets in c.fetchall()}
         return u
+        
+    def is_admin(self):
+        return "a" in self.Flags
     
     @staticmethod 
     def list(db):
@@ -824,6 +832,22 @@ class DBUser(object):
         
     def namespaces(self):
         return DBNamespace.list(self.DB, owned_by_user=self)        
+        
+    def add_role(self, role):
+        if isinstance(role, DBRole):
+            r = role
+        else:
+            r = DBRole.get(self.DB, role)
+        r.add_user(self)
+        r.save()
+
+    def remove_role(self, role):
+        if isinstance(role, DBRole):
+            r = role
+        else:
+            r = DBRole.get(self.DB, role)
+        r.remove_user(self)
+        r.save()
 
 class DBNamespace(object):
 
@@ -836,6 +860,12 @@ class DBNamespace(object):
         self.Creator = None
         self.CreatedTimestamp = None
         
+    def to_jsonable(self):
+        return dict(
+            name=self.Name,
+            owner=self.Owner
+        )
+        
     def save(self):
         c = self.DB.cursor()
         c.execute("""
@@ -845,6 +875,16 @@ class DBNamespace(object):
             commit
             """,
             (self.Name, self.Owner.Name, self.Owner.Name))
+        return self
+
+    def create(self, do_commit=True):
+        c = self.DB.cursor()
+        c.execute("""
+            insert into namespaces(name, owner) values(%s, %s)
+            """,
+            (self.Name, self.Owner.Name, self.Owner.Name))
+        if do_commit:
+            c.execute(commit)
         return self
         
     @staticmethod
@@ -871,27 +911,27 @@ class DBRole(object):
         self.Name = name
         self.Description = description
         self.DB = db
-        self.Users = []
+        self.Usernames = set()
         for u in users:
-            if isinstance(u, str):
-                u = DBUser.get(db, u)
-            self.Users.append(u)
+            if isinstance(u, DBUser):
+                u = u.Username
+            self.Usernames.add(u)
             
     def __str__(self):
-        return "[DBRole %s %s %s]" % (self.Name, self.Description, ",".join([u.Username for u in self.Users]))
+        return "[DBRole %s %s %s]" % (self.Name, self.Description, ",".join(sorted(list(self.Usernames))))
         
     __repr__ = __str__
         
-    def save(self):
+    def save(self, do_commit=True):
         c = self.DB.cursor()
-        usernames = sorted([u.Username if isinstance(u, DBUser) else u for u in self.Users])
+        usernames = sorted(list(self.Usernames))
         c.execute("""
             insert into roles(name, description, users) values(%s, %s, %s)
                 on conflict(name) 
-                    do update set description=%s, users=%s;
-            commit
+                    do update set description=%s, users=%s
             """,
             (self.Name, self.Description, usernames, self.Description, usernames))
+        if do_commit:   c.execute("commit")
         return self
         
     @staticmethod
@@ -919,7 +959,21 @@ class DBRole(object):
         if isinstance(user, DBUser):
             user = user.Username
         #print("__contains__:", self.Users)
-        return user in [u.Username for u in self.Users]
+        return user in self.Usernames
 
+    def add_user(self, user):
+        if isinstance(user, DBUser):
+            username = user.Username
+        else:
+            username = user
+        self.Usernames.add(username)
+        
+    def remove_user(self, user):
+        if isinstance(user, DBUser):
+            username = user.Username
+        else:
+            username = user
+        if username in self.Usernames:
+            self.Usernames.remove(username)
         
         

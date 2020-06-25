@@ -21,6 +21,7 @@ tars:   build $(TARDIR)
 
 build:  clean $(BUILD_DIR) 
 	cd src; make LIBDIR=$(LIBDIR) VERSION=$(VERSION) build
+	cd lib; make LIBDIR=$(LIBDIR) VERSION=$(VERSION) build
 	cd webserver; make SERVER_DIR=$(SERVER_DIR) LIBDIR=$(LIBDIR) VERSION=$(VERSION) build
 	cd docs; make SERVER_DIR=$(SERVER_DIR) DOCSDIR=$(DOCSDIR) -f Makefile-product build
 	cd ui; make UI_DIR=$(UI_DIR) build

@@ -187,6 +187,12 @@
     <div id="headline" style="clear:both">
 	<h2>{% block headline %}{% endblock %}</h2>
     </div>
+    {% if message %}
+        <p class=message>{{message}}</div>
+    {% endif %}
+    {% if error %}
+        <p class=error>{{error}}</div>
+    {% endif %}
     <div id=content style="clear:both">{% block content %}{% endblock %}</div>
 </div>	<!-- body -->
 

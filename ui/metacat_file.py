@@ -1,5 +1,5 @@
 import sys, getopt, os, json, pprint, time
-from py3 import to_bytes, to_str
+from metacat.util import to_bytes, to_str
 from token_lib import TokenLib
 
 import requests

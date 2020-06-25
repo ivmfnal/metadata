@@ -17,11 +17,17 @@
 <form method="post" action="">
     <table class="form">
 		<tr>
-			<th>Load:</th><td><select name="query_to_load">
-				{% for q in named_queries %}
-					<option value="{{q.Namespace}}:{{q.Name}}">{{q.Namespace}}:{{q.Name}}</option>
-				{% endfor %}
-				</select>&nbsp;&nbsp;<input type="submit" name="action" value="load"/></td>
+			<th>Load:</th>
+            <td>
+                {% if named_queries %}
+                    <select name="query_to_load">
+    				{% for q in named_queries %}
+    					<option value="{{q.Namespace}}:{{q.Name}}">{{q.Namespace}}:{{q.Name}}</option>
+    				{% endfor %}
+    				</select>&nbsp;&nbsp;<input type="submit" name="action" value="load"/></td>
+                {% else %}
+                    no saved queries
+                {% endif %}
             <td></td>
 		</tr>
         <tr><td colspan=3>&nbsp;</td></tr>

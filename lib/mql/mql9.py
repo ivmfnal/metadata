@@ -1,5 +1,5 @@
-from dbobjects2 import DBDataset, DBFile, DBNamedQuery, DBFileSet, limited
-from trees import Node, pass_node, Ascender, Descender, Visitor
+from metacat.db import DBDataset, DBFile, DBNamedQuery, DBFileSet, limited
+from .trees import Node, pass_node, Ascender, Descender, Visitor
 import json, time
 
 from lark import Lark
@@ -8,7 +8,7 @@ import pprint
 
 CMP_OPS = [">" , "<" , ">=" , "<=" , "==" , "=" , "!=", "~~", "~~*", "!~~", "!~~*"]
 
-from grammar9 import MQL_Grammar
+from .grammar9 import MQL_Grammar
 _Parser = Lark(MQL_Grammar, start="query")
 
 class _MetaRegularizer(Ascender):

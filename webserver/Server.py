@@ -1,13 +1,12 @@
 from webpie import WPApp, WPHandler, Response
 import psycopg2, json, time, secrets, traceback, hashlib
-from dbobjects2 import DBFile, DBDataset, DBFileSet, DBNamedQuery, DBUser, DBNamespace, DBRole, parse_name
+from metacat.db import DBFile, DBDataset, DBFileSet, DBNamedQuery, DBUser, DBNamespace, DBRole, parse_name
 from wsdbtools import ConnectionPool
 from urllib.parse import quote_plus, unquote_plus
 
-from py3 import to_str, to_bytes
-from mql9 import parse_query
-from signed_token import SignedToken
-from Version import Version
+from metacat.util import to_str, to_bytes, SignedToken
+from metacat.mql import parse_query
+from metacat import Version
 
 class BaseHandler(WPHandler):
 
@@ -31,12 +30,6 @@ class BaseHandler(WPHandler):
         db = self.App.connect()
         return DBUser.get(db, username)
         
-    def is_admin(self, user):
-        if not user:    return None
-        db = self.App.connect()
-        admin = DBRole.get(db, "admin")
-        return user in admin
-
 class GUIHandler(BaseHandler):
 
     def jinja_globals(self):
@@ -270,37 +263,84 @@ class GUIHandler(BaseHandler):
         
         return self.render_to_response("named_query.html", query=query, edit = True)
         
-    def users(self, request, relpath, **args):
-        if not self.authenticated_user():
+    def users(self, request, relpath, error="", **args):
+        me = self.authenticated_user()
+        if not me:
             self.redirect(self.scriptUri() + "/auth/login?redirect=" + self.scriptUri() + "/gui/users")
         db = self.App.connect()
         users = DBUser.list(db)
-        return self.render_to_response("users.html", users=users)
+        return self.render_to_response("users.html", users=users, error=unquote_plus(error), admin = me.is_admin())
         
-    def user(self, request, relpath, username=None, **args):
+    def user(self, request, relpath, username=None, error="", **args):
         db = self.App.connect()
         user = DBUser.get(db, username)
         me = self.authenticated_user()
         all_roles = DBRole.list(db)
-        return self.render_to_response("user.html", all_roles=all_roles, user=user, edit=self.is_admin(me), create=False)
+        return self.render_to_response("user.html", all_roles=all_roles, user=user, 
+            error = unquote_plus(error),
+            mode = "edit" if (me.is_admin() or me.Username==username) else "view", 
+            admin=me.is_admin())
         
-    def create_user(self, request, relpath, **args):
+    def create_user(self, request, relpath, error="", **args):
+        db = self.App.connect()
         me = self.authenticated_user()
-        return self.render_to_response("user.html", create=self.is_admin(me), edit=False)
+        if not me.is_admin():
+            self.redirect("./users?error=%s" % (quote_plus("Not authorized to create users")))
+        return self.render_to_response("user.html", error=unquote_plus(error), mode="create", all_roles = DBRole.list(db))
         
     def save_user(self, request, relpath, **args):
         db = self.App.connect()
         username = request.POST["username"]
         me = self.authenticated_user()
+        
+        new_user = request.POST["new_user"] == "yes"
+        
         u = DBUser.get(db, username)
         if u is None:   
+            if not new_user:    
+                self.redirect("./users?error=%s", quote_plus("user not found"))
             u = DBUser(db, username, request.POST["name"], request.POST["email"], request.POST["flags"])
         else:
             u.Name = request.POST["name"]
             u.EMail = request.POST["email"]
-            if self.is_admin(me):   u.Flags = request.POST["flags"]
-        if self.is_admin(me) or me.Username == u.Username:
+            if me.is_admin():   u.Flags = request.POST["flags"]
+            
+        if me.is_admin() or me.Username == u.Username:
+            
+            if "password1" in request.POST and request.POST.get("password1"):
+                if request.POST["password1"] != request.POST.get("password2"):
+                    if new_user:
+                        self.redirect("./create_user?error=%s" % (quote_plus("Password mismatch")))
+                    else:
+                        self.redirect("./user&error=%s" % (quote_plus("Password mismatch")))
+                        
+                u.set_authenticators("password", [request.POST["password1"]])
+                    
+            if me.is_admin():
+                # update roles
+                all_roles = {r.Name:r for r in DBRole.list(db)}
+                old_roles = set(r.Name for r in DBRole.list(db, u))
+                print("old roles:", old_roles)
+                new_roles = set()
+                for k, v in request.POST.items():
+                    print("POST:", k, v)
+                    if k.startswith("member:"):
+                        r = k[len("member:"):]
+                        if v == "on":
+                            new_roles.add(r)
+                for rn in old_roles - new_roles:
+                    r = all_roles[rn]
+                    r.remove_user(u)
+                    print("removing %s from %s" % (u.Username, r.Name))
+                    r.save()
+                for rn in new_roles - old_roles:
+                    r = all_roles[rn]
+                    r.add_user(u)
+                    r.save()
+                
             u.save()
+                    
+                    
         self.redirect("./users")
         
     def namespaces(self, request, relpath, **args):
@@ -312,15 +352,15 @@ class GUIHandler(BaseHandler):
         db = self.App.connect()
         ns = DBNamespace.get(db, name)
         me = self.authenticated_user()
-        edit = me in ns.Owner or self.is_admin(me)
+        edit = me in ns.Owner or me.is_admin()
         return self.render_to_response("namespace.html", namespace=ns, edit=edit, create=False)
         
-    def create_namespace(self, request, relpath, **args):
+    def create_namespace(self, request, relpath, error="", **args):
         me = self.authenticated_user()
         if not me:
             self.redirect(self.scriptUri() + "/auth/login?redirect=" + self.scriptUri() + "/gui/create_namespace")
         roles = me.roles()
-        return self.render_to_response("namespace.html", roles=roles, create=True, edit=False)
+        return self.render_to_response("namespace.html", roles=roles, create=True, edit=False, error=unquote_plus(error))
         
     def save_namespace(self, request, relpath, **args):
         db = self.App.connect()
@@ -354,7 +394,9 @@ class GUIHandler(BaseHandler):
         if not user:
             self.redirect(self.scriptUri() + "/auth/login?redirect=" + self.scriptUri() + "/gui/create_dataset")
         db = self.App.connect()
-        namespaces = (ns for ns in DBNamespace.list(db) if ns.Owner == user)
+        namespaces = list(ns for ns in DBNamespace.list(db) if user in ns.Owner)
+        if not namespaces:
+            self.redirect("./create_namespace?error=%s" % (quote_plus("You do not own any namespace. Create one first"),))
         return self.render_to_response("dataset.html", namespaces=namespaces, edit=False, create=True)
         
     def dataset(self, request, relpath, namespace=None, name=None, **args):
@@ -396,14 +438,14 @@ class GUIHandler(BaseHandler):
             self.redirect(self.scriptUri() + "/auth/login?redirect=" + self.scriptUri() + "/gui/roles")
         db = self.App.connect()
         roles = DBRole.list(db)
-        admin = self.is_admin(me)
+        admin = me.is_admin()
         return self.render_to_response("roles.html", roles=roles, edit=admin, create=admin)
         
     def role(self, request, relpath, name=None, **args):
         me = self.authenticated_user()
         if me is None:
             self.redirect(self.scriptUri() + "/auth/login?redirect=" + self.scriptUri() + "/gui/roles")
-        admin = self.is_admin(me)
+        admin = me.is_admin()
         db = self.App.connect()
         role = DBRole.get(db, name)
         all_users = list(DBUser.list(db))
@@ -414,14 +456,14 @@ class GUIHandler(BaseHandler):
         me = self.authenticated_user()
         if me is None:
             self.redirect(self.scriptUri() + "/auth/login?redirect=" + self.scriptUri() + "/gui/create_role")
-        if not self.is_admin(me):
+        if not me.is_admin():
             self.redirect("./roles")
         db = self.App.connect()
         return self.render_to_response("role.html", all_users=list(DBUser.list(db)), edit=False, create=True)
         
     def save_role(self, request, relpath, **args):
         me = self.authenticated_user()
-        if not self.is_admin(me):
+        if not me.is_admin():
             self.redirect("./roles")
         db = self.App.connect()
         rname = request.POST["name"]
@@ -454,7 +496,43 @@ class DataHandler(BaseHandler):
         
     def json_chunks(self, lst, chunk=100000):
         return self.text_chunks(self.json_generator(lst), chunk)
+        
+    def namespaces(self, request, relpath, **args):
+        db = self.App.connect()
+        out = [ns.to_jsonable() for ns in DBNamespace.list(db)]
+        return json.dumps(out), "text/json"
 
+    def namespace(self, request, relpath, name=None, **args):
+        name = name or relpath
+        db = self.App.connect()
+        ns = DBNamespace.get(db, name)
+        if ns is None:
+            return "Not found", 400
+        return json.dumps(ns.to_jsonable()), "text/json"
+        
+    def create_namespace(self, request, relpath, name=None, owner=None, **args):
+        db = self.App.connect()
+        user = self.authenticated_user()
+        if user is None:
+            return 401
+        if owner is None:
+            user_roles = list(user.roles())
+            if len(user_roles) == 1:
+                owner_role = user_roles[0]
+            else:
+                return "Owner role must be specified", 400
+        else:
+            owner_role = DBRole.get(db, owner)
+            if not user in owner_role:
+                return 403
+
+        if DBNamespace.exists(db, name):
+            return "Namespace already exists", 400
+            
+        ns = DBNamespace(db, name, owner_role.Name)
+        ns.save()
+        return json.dumps(ns.to_jsonable()), "text/json"
+            
     def datasets(self, request, relpath, with_file_counts="no", **args):
         with_file_counts = with_file_counts == "yes"
         db = self.App.connect()
@@ -638,7 +716,7 @@ class DataHandler(BaseHandler):
             #print("query from POST:", query_text)
         else:
             query_text = request.body
-            print("query from body:", query_text)
+            #print("query from body:", query_text)
         query_text = to_str(query_text or "")
         t0 = time.time()
         if not query_text:
@@ -712,17 +790,26 @@ class AuthHandler(WPHandler):
     def logout(self, request, relpath, redirect=None, **args):
         return self.App.response_with_unset_auth_cookie(redirect)
 
-    def login(self, request, relpath, message="", redirect=None, **args):
-        return self.render_to_response("login.html", message=unquote_plus(message), redirect=redirect)
+    def login(self, request, relpath, message="", error="", redirect=None, **args):
+        return self.render_to_response("login.html", error=unquote_plus(error), 
+                message=unquote_plus(message), redirect=redirect)
         
     def do_login(self, request, relpath, **args):
         username = request.POST["username"]
+        password = request.POST["password"]
         redirect = request.POST.get("redirect", self.scriptUri() + "/gui/index")
+        print("redirect:", redirect)
         db = self.App.connect()
         u = DBUser.get(db, username)
         if not u:
             #print("authentication error")
             self.redirect("./login?message=User+%s+not+found" % (username,))
+        auth_list = u.Authenticators.get("password")
+        if not auth_list:
+            self.redirect("./login?error=%s" % (quote_plus("User has no password"),))
+        if not password in auth_list:
+            self.redirect("./login?error=%s" % (quote_plus("Authentication error"),))
+            
         #print("authenticated")
         return self.App.response_with_auth_cookie(username, redirect)
 
@@ -757,8 +844,11 @@ class App(WPApp):
         self.DB = ConnectionPool(postgres=connstr, max_idle_connections=3)
         self.Filters = {}
         if "filters" in cfg:
-            filters_mod = __import__(cfg["filters"].get("module", "filters"), 
-                                globals(), locals(), [], 0)
+            import metacat.filters as filters_mod
+            #modname = cfg["filters"].get("module", "metacat.filters")
+            
+            #filters_mod = __import__(cfg["filters"].get("module", "metacat.filters"), 
+            #                    globals(), locals(), [], 0)
             for n in cfg["filters"].get("names", []):
                 self.Filters[n] = getattr(filters_mod, n)
                 

@@ -1,7 +1,7 @@
 import sys, getopt, os, json, pprint
 from urllib.request import urlopen, Request
 from urllib.parse import quote_plus, unquote_plus
-from py3 import to_bytes, to_str
+from metacat.util import to_bytes, to_str
 
 import requests
 

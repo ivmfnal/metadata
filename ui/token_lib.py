@@ -1,6 +1,5 @@
-from py3 import to_bytes, to_str
 import os
-from signed_token import SignedToken, SignedTokenExpiredError, SignedTokenImmatureError
+from metacat.util import SignedToken, SignedTokenExpiredError, SignedTokenImmatureError, to_bytes, to_str
 
 class TokenLib(object):
 

@@ -10,6 +10,7 @@ Usage:
     Server host:port can also be specified using environment variable METACAT_SERVER
     
     Commands are:
+        admin create, password, add, remove, list     -- requires direct connection to the database 
         auth login, whoami, list
         dataset create, list, show
         file declare, update, show, add
@@ -31,6 +32,14 @@ if not cfg_file or not args or args[0] == "help":
     
 config = MetaCatConfig(cfg_file)
 cmd, args = args[0], args[1:]
+
+if cmd == "admin":
+    # does not require server configuration
+    from metacat_admin import do_admin
+    do_admin(config, args)
+    sys.exit(0)
+
+
 
 if server_addr:
     server_url = "http://%s:%s" % server_addr

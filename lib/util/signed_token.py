@@ -1,6 +1,6 @@
 import hashlib, json, base64, time, uuid, sys
 from struct import pack, unpack
-from py3 import to_bytes
+from .py3 import to_bytes
 
 class crypt(object):
     

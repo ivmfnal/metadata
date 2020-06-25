@@ -67,17 +67,18 @@
             {% endif %}
         </td>
     </tr>
-    <tr>
-        <th>Files:</th>
-        <td id="nfiles">...</td>
-        <script>
-		    var out = document.getElementById("nfiles");
-		    out.data_received = function(data, param) { this.innerHTML = "" + data.nfiles; };
-            HTTPRequest("{{GLOBAL_AppTopPath}}/data/dataset_count/{{dataset.Namespace}}:{{dataset.Name}}", 
-			    out, null, "json");
-        </script>
-    </tr>
-    
+    {% if not create %}
+        <tr>
+            <th>Files:</th>
+            <td id="nfiles">...</td>
+            <script>
+    		    var out = document.getElementById("nfiles");
+    		    out.data_received = function(data, param) { this.innerHTML = "" + data.nfiles; };
+                HTTPRequest("{{GLOBAL_AppTopPath}}/data/dataset_count/{{dataset.Namespace}}:{{dataset.Name}}", 
+    			    out, null, "json");
+            </script>
+        </tr>
+    {% endif %}
 	{% if edit or create %}
 		<tr><td></td><td><input type="submit" value="Save"/></td>
 		</tr>

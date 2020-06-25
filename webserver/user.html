@@ -13,14 +13,14 @@
 {% block content %}
 
 <form method=POST action="./save_user">
-
-<input type="hidden" name="create" value="{{"yes" if create else "no"}}"/>
+    
+<input type="hidden" name="new_user" value="{{'yes' if mode=='create' else 'no'}}"/>
 
 <table class="form">
 	<tr>
 		<th>Username</th>
 		<td>
-			{% if create %}
+			{% if mode=="create" %}
 				<input type="text" name="username"/>
 			{% else %}
 				<input type="hidden" name="username" value="{{user.Username}}"/>
@@ -31,9 +31,9 @@
 	<tr>
 		<th>Name</th>
 		<td>
-			{% if create %}
+			{% if mode == "create" %}
 				<input type="text" name="name"/>
-			{% elif edit %}
+			{% elif mode == "edit" %}
 				<input type="text" name="name" value="{{user.Name}}"/>
             {% else %}
                 {{user.Name}}
@@ -43,9 +43,9 @@
 	<tr>
 		<th>EMail</th>
 		<td>
-			{% if create %}
+			{% if mode == "create" %}
 				<input type="text" name="email"/>
-			{% elif edit %}
+			{% elif mode == "edit" %}
 				<input type="text" name="email" value="{{user.EMail}}"/>
             {% else %}
                 {{user.EMail}}
@@ -53,16 +53,46 @@
 		</td>
 	</tr>
 	<tr>
+		<th>Flags</th>
+		<td>
+            {% if mode == "create" %}
+			    <input type="text" name="flags"/>
+		    {% elif mode == "edit" %}
+                {% if admin %}
+                    <input type="text" name="flags" value="{{user.Flags}}"/>
+                {% else %}
+                    {{user.Flags}}
+                {% endif %}
+            {% else %}
+                {{user.Flags}}
+		    {% endif %}
+		</td>
+	</tr>
+    {% if mode == "create" or mode == "edit" %}
+        <tr>
+            <th>Password</th>
+            <td><input type="password" name="password1"/></td>
+        </tr>
+        <tr>
+            <th>Repeat password</th>
+            <td><input type="password" name="password2"/></td>
+        </tr>
+    {% endif %}
+	<tr>
 		<th>Roles</th>
 		<td>
-            {% if create %}
-                {% for r in all_roles %}
-                    <input type="checkbox" name="member:{{r.Name}}"/>{{r.Name}}&nbsp;({{r.Description}})<br/>
-                {% endfor %}
-            {% elif edit %}
-                {% for r in all_roles %}
-                    <input type="checkbox" name="member:{{r.Name}}" {% if user in r %}checked="checked"{% endif %}/>{{r.Name}}&nbsp;({{r.Description}})<br/>
-                {% endfor %}
+            {% if mode == "create" %}
+                    {% for r in all_roles %}
+                        <input type="checkbox" name="member:{{r.Name}}"/>{{r.Name}}&nbsp;({{r.Description}})<br/>
+                    {% endfor %}
+            {% elif mode == "edit" %}
+                {% if admin %}
+                    {% for r in all_roles %}
+                        <input type="checkbox" name="member:{{r.Name}}" {% if user in r %}checked="checked"{% endif %}/>{{r.Name}}&nbsp;({{r.Description}})<br/>
+                    {% endfor %}
+                {% else %}
+                    {% for r in user.roles() %}{{r.Name}}&nbsp;({{r.Description}})<br/>{% endfor %}
+                {% endif %}
             {% else %}
                 {% for r in user.roles() %}{{r.Name}}&nbsp;({{r.Description}})<br/>{% endfor %}
             {% endif %}
@@ -70,7 +100,7 @@
 	</tr>
     
     
-	{% if edit or create %}
+	{% if mode == "edit" or mode == "create" %}
 		<tr><td></td><td><input type="submit" value="Save"/></td>
 		</tr>
 	{% endif %}
