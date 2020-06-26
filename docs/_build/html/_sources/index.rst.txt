@@ -3,8 +3,8 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to MetadataDB's documentation!
-======================================
+MetaCat Documentation
+=====================
 
 .. toctree::
    :maxdepth: 2
@@ -12,6 +12,7 @@ Welcome to MetadataDB's documentation!
    
    mql
    REST_API
+   ui
 
 
 Indices and tables

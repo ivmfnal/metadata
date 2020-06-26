@@ -17,8 +17,8 @@
 
 # -- Project information -----------------------------------------------------
 
-project = 'MetadataDB'
-copyright = '2019, Igor Mandrichenko'
+project = 'MetaCat'
+copyright = '2020, Igor Mandrichenko'
 author = 'Igor Mandrichenko'
 
 
