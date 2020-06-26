@@ -91,8 +91,8 @@ Then declare files:
 
 .. code-block:: shell
 
-    # declare new files:
-    metacat file declare [-n <default namespace>] metadata.json [<namespace>:]<dataset>
+    metacat file declare [-n <default namespace>] \
+            metadata.json [<namespace>:]<dataset>
         
         
 Updating
@@ -115,7 +115,6 @@ then update metadata:
 
 .. code-block:: shell
     
-    # declare new files:
     metacat file update [-n <default namespace>] metadata.json
         
 
