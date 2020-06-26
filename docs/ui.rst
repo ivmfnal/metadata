@@ -13,8 +13,8 @@ To install the client side components:
           git clone https://github.com/ivmfnal/metadata.git
           mkdir ~/build
           cd metadata
-          make 
-          # - this will create ~/build/metadata and also a tar file with contents of ~/build/metadata
+          make # this will create ~/build/metadata and 
+               # a tar file with contents of ~/build/metadata
           pip install --user requests 
 
 
