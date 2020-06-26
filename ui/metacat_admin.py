@@ -3,11 +3,11 @@ from metacat.db import DBUser
 import psycopg2
 
 Usage="""
-metacat -c <config file> admin create <username> <password>
-metacat -c <config file> admin password <username> <password>
-metacat -c <config file> admin add <username>                 - add Admin privileges
-metacat -c <config file> admin remove <username>              - remove Admin privileges
-metacat -c <config file> list
+metacat -c <config file> admin  create <username> <password>   - create new admin account
+                                password <username> <password> - change admins password
+                                add <username>                 - add admin privileges
+                                remove <username>              - remove admin privileges
+                                list                           - list all admin accounts
 
 Required direct access to the database. The config file must include:
 
