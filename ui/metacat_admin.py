@@ -43,7 +43,7 @@ def do_create(config, args):
         print("User already exists. Leaving users status unchanged. Use 'metacat admin add ...'")
         sys.exit(1)
     u = DBUser(db, username, "Admin", "", flags="a")
-    u.set_authenticators("password", [password])
+    u.set_password(password)
     u.save()
     print("Admin user %s created" % (username,))
 
@@ -57,7 +57,7 @@ def do_password(config, args):
     if u is None or not u.is_admin():
         print("User does not exist or is not an Admin. Leaving the password unchanged.")
         sys.exit(1)
-    u.set_authenticators("password", [password])
+    u.set_password(password)
     u.save()
     print("Password updated")
     

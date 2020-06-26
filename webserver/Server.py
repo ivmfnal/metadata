@@ -314,7 +314,7 @@ class GUIHandler(BaseHandler):
                     else:
                         self.redirect("./user&error=%s" % (quote_plus("Password mismatch")))
                         
-                u.set_authenticators("password", [request.POST["password1"]])
+                u.set_password(request.POST["password1"])
                     
             if me.is_admin():
                 # update roles
@@ -804,10 +804,8 @@ class AuthHandler(WPHandler):
         if not u:
             #print("authentication error")
             self.redirect("./login?message=User+%s+not+found" % (username,))
-        auth_list = u.Authenticators.get("password")
-        if not auth_list:
-            self.redirect("./login?error=%s" % (quote_plus("User has no password"),))
-        if not password in auth_list:
+        ok, reason = u.verify_password(password)
+        if not ok:
             self.redirect("./login?error=%s" % (quote_plus("Authentication error"),))
             
         #print("authenticated")
