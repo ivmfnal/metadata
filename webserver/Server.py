@@ -481,6 +481,17 @@ class GUIHandler(BaseHandler):
         self.redirect("./role?name=%s" % (rname,))
             
 class DataHandler(BaseHandler):
+    
+    def __init__(self, request, app):
+        BaseHandler.__init__(self, request, app)
+        self.NamespaceAuthorization = {}                # namespace -> True/False
+        
+    def _namespace_authorized(self, db, user, namespace):
+        auth = self.NamespaceAuthorization.get(namespace)
+        if auth is None:
+            ns = DBNamespace.get(db, namespace)
+            self.NamespaceAuthorization[namespace] = auth = (user in ns.Owner)
+        return auth
 
     def json_generator(self, lst):
         from collections.abc import Iterable
@@ -591,7 +602,51 @@ class DataHandler(BaseHandler):
             print (e)
          
         return dataset.to_json(), "text/json"  
-
+        
+    def add_files(self, request, relpath, namespace=None, dataset=None, **args):
+        user = self.authenticated_user()
+        if user is None:
+            return 401
+        db = self.App.connect()
+        default_namespace = namespace
+        ds_namespace, ds_name = parse_name(dataset, default_namespace)
+        if ds_namespace is None:
+            return "Dataset namespace unspecified", 400
+        if not self._namespace_authorized(db, user, ds_namespace):
+            return f"Permission to add files dataset {dataset} denied", 403
+        ds = DBDataset.get(db, ds_namespace, ds_name)
+        if ds is None:
+            return "Dataset not found", 404
+        if ds.Frozen:
+            return "Dataset is frozen", 403
+        file_list = json.loads(request.body) if request.body else []
+        if not file_list:
+                return "Empty file list", 400
+        files = []
+        for file_item in file_list:
+            fid = file_item.get("fid")
+            if fid is not None:
+                f = DBFile.get(db, fid=fid)
+                if f is None:
+                    return "File with id '%s' not found" % (fid,), 404
+            else:
+                spec = file_item.get("name")
+                if not spec:
+                    return "File id or namespace:name must be specified", 400
+                namespace, name = parse_name(spec, default_namespace)
+                if not namespace:
+                    return "File namespace unspecified", 400
+                f = DBFile.get(db, name=name, namespace=namespace)
+                if f is None:
+                    return f"File {namespace}:{name} not found", 404
+            namespace = f.Namespace
+            if not self._namespace_authorized(db, user, namespace):
+                return f"Permission to add files from namespace {namespace} is denied", 403
+            files.append(f)
+        if files:
+            ds.add_files(files, do_commit=True)
+        return json.dumps([f.FID for f in files]), "text/json"
+        
     def declare(self, request, relpath, namespace=None, dataset=None, **args):
         # Declare new files, add to the dataset
         # request body: JSON with list:
@@ -644,11 +699,10 @@ class DataHandler(BaseHandler):
                 return "File %s:%s already exists" % (namespace, name), 400
             if fid is not None and DBFile.exists(db, fid=fid):
                 return "File with fid %s already exists" % (fid,), 400
-            if not namespace in verified_namespaces:
-                ns = DBNamespace.get(db, namespace)
-                if not user in ns.Owner:
-                    return f"Permission to declare files to namespace {namespace} denied", 403
-                verified_namespaces.add(namespace)
+                
+            if not self._namespace_authorized(db, user, namespace):
+                return f"Permission to declare files to namespace {namespace} denied", 403
+            
             f = DBFile(db, namespace=namespace, name=name, fid=file_item.get("fid"), metadata=file_item.get("metadata"))
             f.save(do_commit=False)
             
@@ -668,22 +722,69 @@ class DataHandler(BaseHandler):
         ]
         return json.dumps(out), "text/json"
                 
-    def update_file(self, request, relpath, spec=None, fid=None, **args):
-        # update file metadata
-        # method: PUT, URI: .../file/namespace:name or
-        #              URI: .../file?fid=fid
-        #              URI: .../file?spec=namespace:name
-        # request body = metadata in JSON format
-        if (not relpath) == (not fid):
-                return 403, "Either namespace:name or FID must be specified, but not both"
-        namespace = name = None
-        if relpath:
-                namespace, name = relpath.split(":",1)
-        metadata = json.loads(request.body)
+    def update(self, request, relpath, namespace=None, **args):
+        # Declare new files, add to the dataset
+        # request body: JSON with list:
+        #
+        # [
+        #       {       
+        #               name: "namespace:name",   or "name", but then default namespace must be specified
+        #               fid: "fid",               // optional
+        #               parents:        [fid,...],              // optional
+        #               metadata: { ... }       // optional
+        #       },...
+        # ]
+        #               
+        default_namespace = namespace
+        user = self.authenticated_user()
+        if user is None:
+            return 403
+            
+        verified_namespaces = set()
+
         db = self.App.connect()
-        f = DBFile.get(db, namespace=namespace, name=name, fid=fid)
-        f.save_metadata(metadata)
-        return json.dumps({"fid":f.FID}) + "\n", "text/json"
+
+        file_list = json.loads(request.body) if request.body else []
+        if not file_list:
+                return "Empty file list", 400
+        files = []
+        for file_item in file_list:
+            fid = file_item.get("fid")
+            if fid is None:
+                return "File id must be specified", 400
+                
+            f = DBFile.get(db, fid=fid)
+            if f is None:
+                return "File with id '%s' not found" % (fid,), 404
+            namespace = f.Namespace
+            if not namespace in verified_namespaces:
+                ns = DBNamespace.get(db, namespace)
+                if not user in ns.Owner:
+                    return f"Permission to declare files to namespace {namespace} denied", 403
+                verified_namespaces.add(namespace)
+            if "metadata" in file_item:
+                f.Metadata = file_item["metadata"]
+            files.append((f, file_item.get("parents")))
+
+        for f, parents in files:
+            if parents is not None:
+                f.set_parents(parents, do_commit=False)
+                
+        files = [f for f, _ in files]
+                
+        DBFile.save_many(db, files)
+        
+        out = [
+                    dict(
+                        name="%s:%s" % (f.Namespace, f.Name), 
+                        fid=f.FID,
+                        metadata=f.Metadata,
+                        parents=[p.FID for p in f.parents()]
+                    )
+                    for f in files
+        ]
+        return json.dumps(out), "text/json"
+                
             
     def file(self, request, relpath, name=None, fid=None, with_metadata="yes", with_relations="yes", **args):
         if name:
@@ -734,7 +835,7 @@ class DataHandler(BaseHandler):
             if with_meta:
                 data = (
                     { 
-                        "name":f.Name, "namespace":f.Namespace,
+                        "name":"%s:%s" % (f.Namespace, f.Name),
                         "fid":f.FID,
                         "metadata": f.Metadata or {}
                     } for f in results 
@@ -742,16 +843,15 @@ class DataHandler(BaseHandler):
             else:
                 data = (
                     { 
-                        "name":f.Name, "namespace":f.Namespace,
+                        "name":"%s:%s" % (f.Namespace, f.Name),
                         "fid":f.FID
                     } for f in results 
                 )
         else:
             data = (
                     { 
-                        "name":d.Name, "namespace":d.Namespace,
-                        "parent_namespace":d.ParentNamespace,
-                        "parent_name":d.ParentName,
+                        "name":"%s:%s" % (d.Namespace, d.Name),
+                        "parent":   None if not d.ParentName else "%s:%s" % (d.ParentNamespace, d.ParentName),
                         "metadata": {}
                     } for d in results 
             )
@@ -798,7 +898,7 @@ class AuthHandler(WPHandler):
         username = request.POST["username"]
         password = request.POST["password"]
         redirect = request.POST.get("redirect", self.scriptUri() + "/gui/index")
-        print("redirect:", redirect)
+        #print("redirect:", redirect)
         db = self.App.connect()
         u = DBUser.get(db, username)
         if not u:

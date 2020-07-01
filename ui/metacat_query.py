@@ -20,18 +20,18 @@ Usage:
                                               overrides --summary
         -m|--metadata=all                   - print all metadata fields
                                               overrides --summary
-        -n|--namespace=<default namespace>  - default namespace for the query
+        -N|--namespace=<default namespace>  - default namespace for the query
 """
 
 def do_query(config, server_url, args):
-    opts, args = getopt.getopt(args, "jism:n:pf:", ["json", "ids","summary","metadata=","namespace=","pretty"])
+    opts, args = getopt.getopt(args, "jism:N:pf:", ["json", "ids","summary","metadata=","namespace=","pretty"])
     opts = dict(opts)
 
     #print("opts:", opts,"    args:", args)
     
     url = server_url + "/data/query"
     params = []
-    namespace = opts.get("-n") or opts.get("--namespace")
+    namespace = opts.get("-N") or opts.get("--namespace")
     if namespace:
         params.append("namespace=%s" % (namespace,))
     with_meta = not "--summary" in opts and not "-s" in opts
@@ -65,7 +65,8 @@ def do_query(config, server_url, args):
     body = response.text
 
     if "--json" in opts or "-j" in opts:
-        print(to_str(body))
+        data = json.loads(body)
+        print(json.dumps(data, sort_keys=True, indent=4, separators=(',', ': ')))
         sys.exit(0)
 
     out = json.loads(body)
@@ -94,7 +95,7 @@ def do_query(config, server_url, args):
             if "--ids" in opts or "-i" in opts:
                 print("%s%s" % (f["fid"],meta_out))
             else:
-                print("%s:%s%s" % (f["namespace"],f["name"],meta_out))
+                print("%s%s" % (f["name"],meta_out))
         
                 
     

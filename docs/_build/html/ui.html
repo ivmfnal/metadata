@@ -97,16 +97,13 @@ metacat dataset show &lt;namespace&gt;:&lt;name&gt;
 </pre></div>
 </div>
 </div>
-<div class="section" id="file-metadata">
-<h2>File Metadata<a class="headerlink" href="#file-metadata" title="Permalink to this headline">¶</a></h2>
-<div class="section" id="declaration">
-<h3>Declaration<a class="headerlink" href="#declaration" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="declaring-new-files">
+<h2>Declaring new Files<a class="headerlink" href="#declaring-new-files" title="Permalink to this headline">¶</a></h2>
 <p>Create JSON file with metadata:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span>
     <span class="p">{</span>
-        <span class="s2">&quot;namespace&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span>          <span class="c1"># optional  - command line default witll be used</span>
-        <span class="s2">&quot;name&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span>               <span class="c1"># required</span>
-        <span class="s2">&quot;fid&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span>                <span class="c1"># optional</span>
+        <span class="s2">&quot;name&quot;</span><span class="p">:</span><span class="s2">&quot;namespace:name&quot;</span><span class="p">,</span>    <span class="c1"># required</span>
+        <span class="s2">&quot;fid&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span>                <span class="c1"># optional - will fail if already exists</span>
         <span class="s2">&quot;metadata&quot;</span><span class="p">:</span> <span class="p">{</span> <span class="o">...</span> <span class="p">},</span>        <span class="c1"># optional</span>
         <span class="s2">&quot;parents&quot;</span><span class="p">:</span>  <span class="p">[</span> <span class="s2">&quot;fid1&quot;</span><span class="p">,</span> <span class="s2">&quot;fid2&quot;</span><span class="p">,</span> <span class="o">...</span> <span class="p">]</span>     <span class="c1"># optional</span>
     <span class="p">},</span>
@@ -114,29 +111,69 @@ metacat dataset show &lt;namespace&gt;:&lt;name&gt;
 <span class="p">]</span>
 </pre></div>
 </div>
-<p>Then declare files:</p>
-<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>metacat file <span class="nb">declare</span> <span class="o">[</span>-n &lt;default namespace&gt;<span class="o">]</span> <span class="se">\</span>
+<p>Get a sample of the JSON file:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>metacat file <span class="nb">declare</span> --sample
+</pre></div>
+</div>
+<p>Declare files:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>metacat file <span class="nb">declare</span> <span class="o">[</span>-N &lt;default namespace&gt;<span class="o">]</span> <span class="se">\</span>
         metadata.json <span class="o">[</span>&lt;namespace&gt;:<span class="o">]</span>&lt;dataset&gt;
 </pre></div>
 </div>
 </div>
+<div class="section" id="adding-files-to-dataset">
+<h2>Adding files to dataset<a class="headerlink" href="#adding-files-to-dataset" title="Permalink to this headline">¶</a></h2>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>metacat add -N &lt;namespace&gt;:&lt;name&gt;<span class="o">[</span>,...<span class="o">]</span> &lt;dataset namespace&gt;:&lt;dataset name&gt;
+metacat add -n @&lt;file with names&gt; &lt;dataset namespace&gt;:&lt;dataset name&gt;
+metacat add -i &lt;file id&gt;<span class="o">[</span>,...<span class="o">]</span> &lt;dataset namespace&gt;:&lt;dataset name&gt;
+metacat add -i @&lt;file with ids&gt; &lt;dataset namespace&gt;:&lt;dataset name&gt;
+metacat add -j &lt;JSON file&gt; &lt;dataset namespace&gt;:&lt;dataset name&gt;
+</pre></div>
+</div>
+<p>JSON file structure:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;name&quot;</span><span class="p">:</span><span class="s2">&quot;namespace:name&quot;</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;fid&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span>
+    <span class="p">},</span>
+    <span class="o">...</span>
+<span class="p">]</span>
+</pre></div>
+</div>
+<p>Get a sample of the JSON file:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>metacat file add --sample
+</pre></div>
+</div>
+<p><strong>Example:</strong> add files from dataset A but not in dataset B to dataset C:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>$ metacat query -i -N <span class="nb">test</span> <span class="s2">&quot;files from A - files from B&quot;</span> &gt; file_ids.txt
+$ metacat file add -i @file_ids.txt test:C
+</pre></div>
+</div>
+</div>
+<div class="section" id="file-metadata">
+<h2>File Metadata<a class="headerlink" href="#file-metadata" title="Permalink to this headline">¶</a></h2>
 <div class="section" id="updating">
 <h3>Updating<a class="headerlink" href="#updating" title="Permalink to this headline">¶</a></h3>
 <p>Create JSON file with (new) metadata:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span>
     <span class="p">{</span>
-        <span class="s2">&quot;namespace&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span>          <span class="c1"># optional  - command line default witll be used</span>
-        <span class="s2">&quot;name&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span>               <span class="c1"># optional</span>
-        <span class="s2">&quot;fid&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span>                <span class="c1"># optional - either fid or namespace/name must be present</span>
-        <span class="s2">&quot;metadata&quot;</span><span class="p">:</span> <span class="p">{</span> <span class="o">...</span> <span class="p">},</span>        <span class="c1"># optional</span>
-        <span class="s2">&quot;parents&quot;</span><span class="p">:</span>  <span class="p">[</span> <span class="s2">&quot;fid1&quot;</span><span class="p">,</span> <span class="s2">&quot;fid2&quot;</span><span class="p">,</span> <span class="o">...</span> <span class="p">]</span>     <span class="c1"># optional</span>
+        <span class="s2">&quot;name&quot;</span><span class="p">:</span><span class="s2">&quot;name:namespace&quot;</span><span class="p">,</span>        <span class="c1"># optional  - the file will be renamed</span>
+        <span class="s2">&quot;fid&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span>                    <span class="c1"># required</span>
+        <span class="s2">&quot;metadata&quot;</span><span class="p">:</span> <span class="p">{</span> <span class="o">...</span> <span class="p">},</span>            <span class="c1"># optional - metadata will be updated</span>
+        <span class="s2">&quot;parents&quot;</span><span class="p">:</span>  <span class="p">[</span> <span class="s2">&quot;fid1&quot;</span><span class="p">,</span> <span class="s2">&quot;fid2&quot;</span><span class="p">,</span> <span class="o">...</span> <span class="p">]</span>     <span class="c1"># parents will be updated</span>
     <span class="p">},</span>
     <span class="o">...</span>
 <span class="p">]</span>
 </pre></div>
 </div>
-<p>then update metadata:</p>
-<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>metacat file update <span class="o">[</span>-n &lt;default namespace&gt;<span class="o">]</span> metadata.json
+<p>Get a sample of the JSON file:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>metacat file update --sample
+</pre></div>
+</div>
+<p>Update metadata:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>metacat file update <span class="o">[</span>-N &lt;default namespace&gt;<span class="o">]</span> metadata.json
 </pre></div>
 </div>
 </div>
@@ -147,27 +184,23 @@ metacat file show -i &lt;fid&gt;                      <span class="c1"># - by fi
 </pre></div>
 </div>
 </div>
-<div class="section" id="adding-files-to-dataset">
-<h3>Adding files to dataset<a class="headerlink" href="#adding-files-to-dataset" title="Permalink to this headline">¶</a></h3>
-<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>metacat add &lt;namespace&gt;:&lt;name&gt; &lt;dataset namespace&gt;:&lt;dataset name&gt;
-metacat add -i &lt;file id&gt; &lt;dataset namespace&gt;:&lt;dataset name&gt;
-</pre></div>
 </div>
-<p>Or using a JSON file with multiple files, create the JSON file:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span>
-    <span class="p">{</span>
-        <span class="s2">&quot;namespace&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span>          <span class="c1"># optional  - command line default witll be used</span>
-        <span class="s2">&quot;name&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span>               <span class="c1"># optional</span>
-        <span class="s2">&quot;fid&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span>                <span class="c1"># optional - either fid or namespace/name must be present</span>
-    <span class="p">},</span>
-    <span class="o">...</span>
-<span class="p">]</span>
+<div class="section" id="query">
+<h2>Query<a class="headerlink" href="#query" title="Permalink to this headline">¶</a></h2>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>metacat query &lt;options&gt; <span class="s2">&quot;&lt;MQL query&gt;&quot;</span>
+metacat query &lt;options&gt; -f &lt;MQL query file&gt;
+
+Options:
+    -j<span class="p">|</span>--json                           - print raw JSON output
+    -p<span class="p">|</span>--pretty                         - pretty-print metadata
+    -i<span class="p">|</span>--ids                            - print file ids instead of names
+    -s<span class="p">|</span>--summary                        - print only summary information
+    -m<span class="p">|</span>--metadata<span class="o">=[</span>&lt;field&gt;,...<span class="o">]</span>         - print metadata fields
+                                          overrides --summary
+    -m<span class="p">|</span>--metadata<span class="o">=</span>all                   - print all metadata fields
+                                          overrides --summary
+    -N<span class="p">|</span>--namespace<span class="o">=</span>&lt;default namespace&gt;  - default namespace <span class="k">for</span> the query
 </pre></div>
-</div>
-<p>then add files:</p>
-<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>metacat add -f &lt;json file&gt; <span class="o">[</span>-n &lt;default namespace&gt;<span class="o">]</span> <span class="o">[</span>&lt;dataset namespace&gt;:<span class="o">]</span>&lt;dataset name&gt;
-</pre></div>
-</div>
 </div>
 </div>
 </div>
@@ -199,7 +232,10 @@ metacat add -i &lt;file id&gt; &lt;dataset namespace&gt;:&lt;dataset name&gt;
 <li class="toctree-l2"><a class="reference internal" href="#authentication">Authentication</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#namespaces">Namespaces</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#datasets">Datasets</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#declaring-new-files">Declaring new Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#adding-files-to-dataset">Adding files to dataset</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#file-metadata">File Metadata</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#query">Query</a></li>
 </ul>
 </li>
 </ul>

@@ -66,34 +66,77 @@ Datasets
     
     metacat dataset create [-p <parent namespace>:<parent name>] <namespace>:<name>
     metacat dataset show <namespace>:<name>
-        
-        
-File Metadata
--------------
 
-Declaration
-~~~~~~~~~~~
+Declaring new Files
+-------------------
 
 Create JSON file with metadata::
 
     [
         {   
-            "namespace":"...",          # optional  - command line default witll be used
-            "name":"...",               # required
-            "fid":"...",                # optional
+            "name":"namespace:name",    # required
+            "fid":"...",                # optional - will fail if already exists
             "metadata": { ... },        # optional
             "parents":  [ "fid1", "fid2", ... ]     # optional         
         },
         ...
     ]
 
-Then declare files:
+Get a sample of the JSON file:
+
+.. code-block:: shell
+    
+    metacat file declare --sample
+        
+Declare files:
 
 .. code-block:: shell
 
-    metacat file declare [-n <default namespace>] \
+    metacat file declare [-N <default namespace>] \
             metadata.json [<namespace>:]<dataset>
         
+
+Adding files to dataset
+-----------------------
+
+.. code-block:: shell
+    
+    metacat add -N <namespace>:<name>[,...] <dataset namespace>:<dataset name>
+    metacat add -n @<file with names> <dataset namespace>:<dataset name>
+    metacat add -i <file id>[,...] <dataset namespace>:<dataset name>
+    metacat add -i @<file with ids> <dataset namespace>:<dataset name>
+    metacat add -j <JSON file> <dataset namespace>:<dataset name>
+        
+JSON file structure::
+    
+    [
+        {   
+            "name":"namespace:name"
+        },
+        {
+            "fid":"..."
+        },
+        ...
+    ]
+
+Get a sample of the JSON file:
+
+.. code-block:: shell
+    
+    metacat file add --sample
+
+**Example:** add files from dataset A but not in dataset B to dataset C:
+
+.. code-block:: shell
+
+    $ metacat query -i -N test "files from A - files from B" > file_ids.txt
+    $ metacat file add -i @file_ids.txt test:C
+
+
+        
+File Metadata
+-------------
+
         
 Updating
 ~~~~~~~~
@@ -102,20 +145,27 @@ Create JSON file with (new) metadata::
 
     [
         {   
-            "namespace":"...",          # optional  - command line default witll be used
-            "name":"...",               # optional
-            "fid":"...",                # optional - either fid or namespace/name must be present
-            "metadata": { ... },        # optional
-            "parents":  [ "fid1", "fid2", ... ]     # optional         
+            "name":"name:namespace",        # optional  - the file will be renamed
+            "fid":"...",                    # required
+            "metadata": { ... },            # optional - metadata will be updated
+            "parents":  [ "fid1", "fid2", ... ]     # parents will be updated
         },
         ...
     ]
 
-then update metadata:
+Get a sample of the JSON file:
 
 .. code-block:: shell
     
-    metacat file update [-n <default namespace>] metadata.json
+    metacat file update --sample
+        
+
+
+Update metadata:
+
+.. code-block:: shell
+    
+    metacat file update [-N <default namespace>] metadata.json
         
 
         
@@ -126,30 +176,28 @@ Retrieving
 
     metacat file show <namespace>:<name>            # - by namespace/name
     metacat file show -i <fid>                      # - by file id
+
         
-        
-Adding files to dataset
-~~~~~~~~~~~~~~~~~~~~~~~
+
+Query
+-----
 
 .. code-block:: shell
-    
-    metacat add <namespace>:<name> <dataset namespace>:<dataset name>
-    metacat add -i <file id> <dataset namespace>:<dataset name>
-        
-Or using a JSON file with multiple files, create the JSON file::
-    
-    [
-        {   
-            "namespace":"...",          # optional  - command line default witll be used
-            "name":"...",               # optional
-            "fid":"...",                # optional - either fid or namespace/name must be present
-        },
-        ...
-    ]
 
-then add files:
-        
-.. code-block:: shell
-    
-    metacat add -f <json file> [-n <default namespace>] [<dataset namespace>:]<dataset name>
+    metacat query <options> "<MQL query>"
+    metacat query <options> -f <MQL query file>
 
+    Options:
+        -j|--json                           - print raw JSON output
+        -p|--pretty                         - pretty-print metadata
+        -i|--ids                            - print file ids instead of names
+        -s|--summary                        - print only summary information
+        -m|--metadata=[<field>,...]         - print metadata fields
+                                              overrides --summary
+        -m|--metadata=all                   - print all metadata fields
+                                              overrides --summary
+        -N|--namespace=<default namespace>  - default namespace for the query
+
+    
+
+        
