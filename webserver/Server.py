@@ -458,11 +458,12 @@ class GUIHandler(BaseHandler):
         return self.render_to_response("namespace.html", namespace=ns, edit=edit, create=False, roles=roles)
         
     def create_namespace(self, request, relpath, error="", **args):
+        db = self.App.connect()
         me = self.authenticated_user()
         if not me:
             self.redirect(self.scriptUri() + "/auth/login?redirect=" + self.scriptUri() + "/gui/create_namespace")
         admin = me.is_admin()
-        roles = DBRole.list() if admin else me.roles()
+        roles = DBRole.list(db) if admin else me.roles()
         return self.render_to_response("namespace.html", roles=roles, create=True, edit=False, error=unquote_plus(error))
         
     def save_namespace(self, request, relpath, **args):

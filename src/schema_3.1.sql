@@ -17,7 +17,7 @@ create table roles
 
 create table authenticators
 (
-    username    text    references users(username),
+    username    text    references users(username) on delete cascade,
     type        text
         constraint authenticator_types check ( 
             type in ('x509','password','ssh')
@@ -76,7 +76,7 @@ create index datasets_meta_index on datasets using gin (metadata);
 
 create table files_datasets
 (
-    file_id                 text    references files,
+    file_id                 text    references files on delete cascade,
     dataset_namespace       text,
     dataset_name            text,
     primary key(dataset_namespace, dataset_name, file_id)
