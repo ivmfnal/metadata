@@ -30,9 +30,10 @@
 	</tr>
 	<tr>
 		<th>Owner role</th>
-		<td>{% if create %}
+		<td>{% if create or edit %}
                 <select name="role">
                     {% for r in roles %}
+                        <!-- {{r}} -->
                         <option value="{{r.Name}}">{{r.Name}}</option>
                     {% endfor %}
                 </select>

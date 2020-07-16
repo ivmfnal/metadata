@@ -1,4 +1,4 @@
-from webpie import WPApp, WPHandler, Response
+from webpie import WPApp, WPHandler, Response, WPStaticHandler
 import psycopg2, json, time, secrets, traceback, hashlib
 from metacat.db import DBFile, DBDataset, DBFileSet, DBNamedQuery, DBUser, DBNamespace, DBRole, parse_name
 from wsdbtools import ConnectionPool
@@ -9,6 +9,9 @@ from metacat.mql import parse_query
 from metacat import Version
 
 class BaseHandler(WPHandler):
+    
+    def connect(self):
+        return self.App.connect()
 
     def text_chunks(self, gen, chunk=100000):
         buf = []
@@ -30,7 +33,103 @@ class BaseHandler(WPHandler):
         db = self.App.connect()
         return DBUser.get(db, username)
         
+class GUICategoryHandler(BaseHandler):
+    
+    def categories(self, request, relpath):
+        db = self.connect()
+        cats = DBParamCategory.list(db)
+        return self.render_to_response("categories.html", categories=cats)
+        
+    index = categories
+        
+    def show(self, request, relpath, path=None):
+        me = self.authenticated_user()
+        db = self.connect()
+        cat = DBParamCategory.get(db, path)
+        admin = me.is_admin()
+        edit = me is not None and (me in ns.Owner or admin)
+        roles = None
+        if edit:
+            if admin:
+                roles = DBRole.list(db)
+            else:
+                roles = me.roles()
+        return self.render_to_response("category.html", category=cat, edit=edit, create=False, roles=roles, admin=admin)
+        
+    def create(self, request, relpath):
+        db = self.connect()
+        me = self.authenticated_user()
+        if not me:
+            self.redirect(self.scriptUri() + "/auth/login?redirect=" + self.scriptUri() + "/gui/categories/crteate")
+        cats = list(DBParamCategory.list(db))
+        admin = me.is_admin()
+        if not admin:
+            cats = [c for c in cats if me in c.Owner]
+        return self.render_to_response("create_category.html", parents=cats, roles=me.roles(), admin=admin)
+        
+    def do_create(self, request, relpath):
+        db = self.connect()
+        me = self.authenticated_user()
+        if not me:
+            self.redirect(self.scriptUri() + "/auth/login?redirect=" + self.scriptUri() + "/gui/categories/index")
+        rpath = request.POST["rpath"]
+        if '.' in rpath:
+            self.redirect("./index?error=%s" % (quote_plus("Invaid relative category path. Can not contain dot."),))
+        parent_path = reuest.POST["parent"]
+        if not parent_path:
+            if not me.is_admin():
+                self.redirect("./index?error=%s" % (quote_plus("Can not create top level category"),))
+        else:
+            parent_cat = DBParamCategory.get(db, parent_path)
+            if not (me.is_admin() or me in parent_cat.Owner):
+                self.redirect("./index?error=%s" % (quote_plus(f"No permission to create a category under {parent_path}"),))
+        
+        path = f"{parent_path}.{rpath}"
+        if DBParamCategory.exists(db, path):
+            self.redirect("./index?error=%s" % (quote_plus(f"Category {path} already exists"),))
+            
+        cat = DBParamCategory(db, path, me)
+        cat.Restricted = "restricted" in request.POST
+        cat.save()
+        self.redirect(f"./show?path={path}")
+        
+    def do_save(self, request, relpath):
+        db = self.connect()
+        me = self.authenticated_user()
+        if not me:
+            self.redirect(self.scriptUri() + "/auth/login?redirect=" + self.scriptUri() + "/gui/categories/index")
+        path = request.POST["path"]
+
+        cat = DBParamCategory.get(db, path)
+        if cat is None:
+            self.redirect("./index?error=%s" % (quote_plus(f"Category does not exist"),))
+
+        if not (me.is_admin() or me in cat.Owner):
+            self.redirect("./index?error=%s" % (quote_plus(f"Permission denied"),))
+
+        cat.Restricted = "restricted" in request.POST
+        cat.save()
+        self.redirect(f"./show?path={path}")
+        
+    def remove_definition(self, request, relpath, path=None, param=None):
+        db = self.connect()
+        me = self.authenticated_user()
+        if not me:
+            self.redirect(self.scriptUri() + "/auth/login?redirect=" + self.scriptUri() + "/gui/categories/index")
+        cat = DBParamCategory.get(db, path)
+        if cat is None:
+            self.redirect("./index?error=%s" % (quote_plus(f"Category does not exist"),))
+        if not (me.is_admin() or me in cat.Owner):
+            self.redirect("./show?path=%s&error=%s" % (path, quote_plus(f"Permission denied"),))
+        defs = cat.definitions
+        
+        
+        
 class GUIHandler(BaseHandler):
+    
+    def __init__(self, request, app):
+        BaseHandler.__init__(self, request, app)
+        self.categories = GUICategoryHandler(request, app)
 
     def jinja_globals(self):
         return {"GLOBAL_User":self.authenticated_user()}
@@ -75,7 +174,7 @@ class GUIHandler(BaseHandler):
                     with_sql = with_sql)
 
     def show_file(self, request, relpath, fid=None, **args):
-        db = self.App.connect()
+        db = self.connect()
         f = DBFile.get(db, fid=fid, with_metadata=True)
         return self.render_to_response("show_file.html", f=f)
 
@@ -352,14 +451,18 @@ class GUIHandler(BaseHandler):
         db = self.App.connect()
         ns = DBNamespace.get(db, name)
         me = self.authenticated_user()
-        edit = me in ns.Owner or me.is_admin()
-        return self.render_to_response("namespace.html", namespace=ns, edit=edit, create=False)
+        admin = me.is_admin()
+        edit = me is not None and (me in ns.Owner or admin)
+        roles = list(DBRole.list(db) if admin else me.roles())
+        #print("namespace: roles", roles)
+        return self.render_to_response("namespace.html", namespace=ns, edit=edit, create=False, roles=roles)
         
     def create_namespace(self, request, relpath, error="", **args):
         me = self.authenticated_user()
         if not me:
             self.redirect(self.scriptUri() + "/auth/login?redirect=" + self.scriptUri() + "/gui/create_namespace")
-        roles = me.roles()
+        admin = me.is_admin()
+        roles = DBRole.list() if admin else me.roles()
         return self.render_to_response("namespace.html", roles=roles, create=True, edit=False, error=unquote_plus(error))
         
     def save_namespace(self, request, relpath, **args):
@@ -393,8 +496,10 @@ class GUIHandler(BaseHandler):
         user = self.authenticated_user()
         if not user:
             self.redirect(self.scriptUri() + "/auth/login?redirect=" + self.scriptUri() + "/gui/create_dataset")
+        admin = user.is_admin()
         db = self.App.connect()
-        namespaces = list(ns for ns in DBNamespace.list(db) if user in ns.Owner)
+        namespaces = list(ns for ns in DBNamespace.list(db) if admin or (user in ns.Owner))
+        #print("create_dataset: amdin:", admin, "   namespaces:", namespaces)
         if not namespaces:
             self.redirect("./create_namespace?error=%s" % (quote_plus("You do not own any namespace. Create one first"),))
         return self.render_to_response("dataset.html", namespaces=namespaces, edit=False, create=True)
@@ -476,7 +581,8 @@ class GUIHandler(BaseHandler):
             if k.startswith("member:"):
                 username = k.split(":", 1)[-1]
                 members.add(username)
-        role.Users = sorted(list(members))
+        print("save_role: members:", members)
+        role.Usernames = sorted(list(members))
         role.save()
         self.redirect("./role?name=%s" % (rname,))
             
@@ -704,7 +810,7 @@ class DataHandler(BaseHandler):
                 return f"Permission to declare files to namespace {namespace} denied", 403
             
             f = DBFile(db, namespace=namespace, name=name, fid=file_item.get("fid"), metadata=file_item.get("metadata"))
-            f.save(do_commit=False)
+            f.create(do_commit=False)
             
             parents = file_item.get("parents")
             if parents:
@@ -749,13 +855,18 @@ class DataHandler(BaseHandler):
                 return "Empty file list", 400
         files = []
         for file_item in file_list:
-            fid = file_item.get("fid")
-            if fid is None:
-                return "File id must be specified", 400
-                
-            f = DBFile.get(db, fid=fid)
+            fid, spec = None, None
+            if "fid" in file_item:
+                fid = file_item.get("fid")
+                f = DBFile.get(db, fid=fid)
+            else:
+                spec = file_item.get("name")
+                if spec is None:
+                    return "Either file namespace:name or file id must be specified for each file", 400
+                namespace, name = parse_name(spec, default_namespace)
+                f = DBFile.get(db, namespace=namespace, name=name)
             if f is None:
-                return "File with id '%s' not found" % (fid,), 404
+                return "File %s not found" % (fid or spec,), 404
             namespace = f.Namespace
             if not namespace in verified_namespaces:
                 ns = DBNamespace.get(db, namespace)
@@ -772,7 +883,7 @@ class DataHandler(BaseHandler):
                 
         files = [f for f, _ in files]
                 
-        DBFile.save_many(db, files)
+        DBFile.update_many(db, files)
         
         out = [
                     dict(
@@ -922,6 +1033,7 @@ class RootHandler(WPHandler):
         self.data = DataHandler(*params, **args)
         self.gui = GUIHandler(*params, **args)
         self.auth = AuthHandler(*params, **args)
+        self.static = WPStaticHandler(*params, root=self.App.StaticLocation)
 
     def index(self, req, relpath, **args):
         return self.redirect("./gui/index")
@@ -930,8 +1042,9 @@ class App(WPApp):
 
     Version = Version
 
-    def __init__(self, cfg, root, **args):
+    def __init__(self, cfg, root, static_location="./static", **args):
         WPApp.__init__(self, root, **args)
+        self.StaticLocation = static_location
         self.Cfg = cfg
         self.DefaultNamespace = cfg.get("default_namespace")
         
@@ -1032,7 +1145,7 @@ if not config:
 config = yaml.load(open(config, "r"), Loader=yaml.SafeLoader)  
 cookie_path = config.get("cookie_path", "/metadata")
 static_location = config.get("static_location", "./static")
-application=App(config, RootHandler, enable_static=True, static_location=static_location)
+application=App(config, RootHandler, static_location=static_location)
 application.initJinjaEnvironment(
     tempdirs=[config.get("templates", ".")], 
     globals={

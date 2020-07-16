@@ -18,7 +18,8 @@
 	</tr>
 	{% for ds in datasets %}
 		<tr>
-            <td>{{ds.Namespace}}</td><td><a href="./dataset?namespace={{ds.Namespace}}&name={{ds.Name}}">{{ds.Name}}</a></td>
+            <td><a href="./namespace?name={{ds.Namespace}}">{{ds.Namespace}}</a></td>
+            <td><a href="./dataset?namespace={{ds.Namespace}}&name={{ds.Name}}">{{ds.Name}}</a></td>
             <td>{{'frozen' if ds.Frozen}}</td>
             <td>{{'monotonic' if ds.Monotonic}}</td>
             <td id="count:{{ds.Namespace}}:{{ds.Name}}" class="right"></td>

@@ -70,13 +70,13 @@ def do_declare(config, server_url, args):
     opts, args = getopt.getopt(args, "N:", ["namespace=", "sample"])
     opts = dict(opts)
 
-    if not args or args[0] == "help":
-        print(Usage)
-        sys.exit(2)
-    
     if "--sample" in opts:
         print(json.dumps(_declare_smaple, sort_keys=True, indent=4, separators=(',', ': ')))
         sys.exit(0)
+    
+    if not args or args[0] == "help":
+        print(Usage)
+        sys.exit(2)
     
     url = server_url + "/data/declare"
     metadata = json.load(open(args[0], "r"))       # parse to validate JSON
@@ -185,21 +185,17 @@ _update_smaple = [
     }
 ]
 
-
-
-
-
 def do_update(config, server_url, args):
     opts, args = getopt.getopt(args, "N:", ["namespace=", "sample"])
     opts = dict(opts)
 
-    if not args or args[0] == "help":
-        print(Usage)
-        sys.exit(2)
-    
     if "--sample" in opts:
         print(json.dumps(_update_smaple, sort_keys=True, indent=4, separators=(',', ': ')))
         sys.exit(0)
+    
+    if not args or args[0] == "help":
+        print(Usage)
+        sys.exit(2)
     
     url = server_url + "/data/update"
     metadata = json.load(open(args[0], "r"))       # parse to validate JSON
@@ -227,7 +223,7 @@ def do_update(config, server_url, args):
     body = response.text
     print(body)
 
-_update_smaple = [
+_add_smaple = [
     {        
         "name":"test:file1.dat"
     },
@@ -243,14 +239,14 @@ def do_add(config, server_url, args):
     opts, args = getopt.getopt(args, "i:j:n:N:", ["namespace=", "json=", "names=", "ids=", "sample"])
     opts = dict(opts)
 
+    if "--sample" in opts:
+        print(json.dumps(_add_smaple, sort_keys=True, indent=4, separators=(',', ': ')))
+        sys.exit(0)
+
     if not args or args[0] == "help":
         print(Usage)
         sys.exit(2)
     
-    if "--sample" in opts:
-        print(json.dumps(_update_smaple, sort_keys=True, indent=4, separators=(',', ': ')))
-        sys.exit(0)
-
     file_list = []
 
     if "-j" in opts or "--json" in opts:
