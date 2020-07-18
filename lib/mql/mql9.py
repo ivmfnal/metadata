@@ -81,7 +81,7 @@ class _MetaRegularizer(Ascender):
                 and_exp = []
                 assert meta_and.T == "meta_and"
                 for c in meta_and.C:
-                    assert c.T in CMP_OPS or c.T == "in", "Unknown operation %s, expected cmp op or 'in'" % (c.T,)
+                    assert c.T in CMP_OPS or c.T == "in" or c.T == "present", "Unknown operation %s, expected cmp op or 'in'" % (c.T,)
                     and_exp.append((c.T, c.C[0], c.C[1]))
                 or_exp.append(and_exp)
             return or_exp
@@ -215,8 +215,9 @@ class FileQuery(object):
         return "FileQuery(%s)" % (self.Tree.pretty(),)
         
     def assemble(self, db, default_namespace = None):
-        #print("Query.assemble: self.Assembled:", self.Assembled)
+        #print("FileQuery.assemble: self.Assembled:", self.Assembled)
         if self.Assembled is None:
+            #print("FileQuery.assemble: assembling...")
             self.Assembled = _Assembler(db, default_namespace).walk(self.Tree)
         return self.Assembled
         
@@ -485,6 +486,10 @@ class _Converter(Transformer):
             else:
                 children.append(a)
         return Node("meta_or", children)
+        
+    def present(self, args):
+        assert len(args) == 1
+        return Node("present", [args[0].value, None])
 
     def _apply_not(self, node):
         if node.T == "meta_and":
@@ -530,7 +535,9 @@ class _Assembler(Ascender):
         #print("_Assembler.named_query()")
         namespace, name = query_name
         namespace = namespace or self.DefaultNamespace
-        tree = Query.from_db(self.DB, namespace, name).parse()
+        parsed = MQLQuery.from_db(self.DB, namespace, name)
+        assert parsed.Type == "file"
+        tree = parsed.Tree
         tree = _ParamsApplier().walk(tree, {"namespace":namespace})
         #print("_Assembler.named_query: returning:", tree.pretty())
         return tree
@@ -783,6 +790,8 @@ class _FileEvaluator(Ascender):
         if op == "meta_or":     op = "or"
         if op in self.BOOL_OPS:
             return self._eval_meta_bool(f, op, args)
+        elif op == "present":
+            return f.has_attribute(args[0])
         else:
             # 
             name, value = args
@@ -856,8 +865,29 @@ def parse_query(text):
     parsed = _Parser.parse(text)
     #print("parsed:---\n", parsed)
     return _Converter().convert(parsed)
-        
 
+class MQLQuery(object):
+    
+    @staticmethod
+    def parse(text):
+        out = []
+        for l in text.split("\n"):
+            l = l.split('#', 1)[0]
+            out.append(l)
+        text = '\n'.join(out)
+    
+        parsed = _Parser.parse(text)
+        #print("parsed:---\n", parsed)
+        return _Converter().convert(parsed)
+        
+    @staticmethod
+    def from_db(db, namespace, name):
+        q = DBNamedQuery.get(db, namespace, name)
+        if q is None:
+            raise ValueError("Named query %s:%s not found" % (namespace, name))
+        text = q.Source
+        return MQLQuery.parse(text)
+        
 if __name__ == "__main__":
     import sys, traceback
     import psycopg2

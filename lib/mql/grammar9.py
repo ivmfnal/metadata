@@ -44,6 +44,7 @@ meta_or:    meta_and ( "or" meta_and )*
 meta_and:   term_meta ( "and" term_meta )*
 
 term_meta:  ANAME CMPOP constant                    -> cmp_op
+    | ANAME "present"?                               -> present
     | constant "in" ANAME                           -> in_op
     | "(" meta_exp ")"                              -> s_
     | "!" term_meta                                 -> meta_not

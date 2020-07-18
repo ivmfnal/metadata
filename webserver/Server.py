@@ -5,7 +5,7 @@ from wsdbtools import ConnectionPool
 from urllib.parse import quote_plus, unquote_plus
 
 from metacat.util import to_str, to_bytes, SignedToken
-from metacat.mql import parse_query
+from metacat.mql import MQLQuery
 from metacat import Version
 
 class BaseHandler(WPHandler):
@@ -145,7 +145,7 @@ class GUIHandler(BaseHandler):
         results = False
         if query_text:
         
-            query = parse_query(query_text)
+            query = MQLQuery.parse(query_text)
             
             try:    parsed = query.parse().pretty()
             except:
@@ -235,7 +235,7 @@ class GUIHandler(BaseHandler):
                             url_query = quote_plus(url_query)
                             if namespace: url_query += "&namespace=%s" % (namespace,)
                             #print("with_meta=", with_meta)
-                            parsed = parse_query(query_text)
+                            parsed = MQLQuery.parse(query_text)
                             query_type = parsed.Type
                             results = parsed.run(db, filters=self.App.filters(), 
                                     default_namespace=namespace or None,
@@ -327,19 +327,17 @@ class GUIHandler(BaseHandler):
             namespace=namespace or "")
         return resp
         
-    def named_queries(self, request, relpath, namespace=None, **args):
+    def named_queries(self, request, relpath, namespace=None, error="", **args):
         db = self.App.connect()
         queries = list(DBNamedQuery.list(db, namespace))
         return self.render_to_response("named_queries.html", namespace=namespace,
+            error = unquote_plus(error),
             queries = queries)
             
-    def named_query(self, request, relpath, name=None, namespace=None, edit="no", **args):
-        if namespace is None:
-            namespace, name = name.split(":",1)
-            
+    def named_query(self, request, relpath, name=None, edit="no", **args):
+        namespace, name = parse_name(name, None)
         db = self.App.connect()
         query = DBNamedQuery.get(db, namespace, name)
-        
         return self.render_to_response("named_query.html", 
                 query=query, edit = edit=="yes")
 
@@ -356,6 +354,10 @@ class GUIHandler(BaseHandler):
         namespace = request.POST["namespace"]
         source = request.POST["source"]
         create = request.POST["create"] == "yes"
+
+        query = MQLQuery.parse(query_text)
+        if query.Type != "file":
+            self.redirect("./named_queries?error=%s" % (quote_plus("only file queries can be saved"),))
         
         db = self.App.connect()
         query = DBNamedQuery(db, name=name, namespace=namespace, source=source).save()
@@ -936,7 +938,7 @@ class DataHandler(BaseHandler):
             return "[]", "text/json"
             
         db = self.App.connect()
-        query = parse_query(query_text)
+        query = MQLQuery.parse(query_text)
         query_type = query.Type
         results = query.run(db, filters=self.App.filters(), with_meta=with_meta, default_namespace=namespace or None)
 

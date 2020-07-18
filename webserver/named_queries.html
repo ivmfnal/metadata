@@ -14,7 +14,7 @@
 	{% for q in queries %}
 		<tr>
 				<td>{{q.Namespace}}</td>
-				<td><a href="./named_query?name={{q.Name}}:{{q.Namespace}}&edit=yes">{{q.Name}}</td>
+				<td><a href="./named_query?name={{q.Namespace}}:{{q.Name}}&edit=yes">{{q.Name}}</td>
 	</tr>
 	{% endfor %}
 </table>

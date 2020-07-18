@@ -138,7 +138,7 @@ class DBFileSet(object):
 
     def subtract(self, right):
         right_ids = set(f.FID for f in right)
-        return (f for f in self if not f.FID in right_ids)
+        return DBFileSet(self.DB, (f for f in self if not f.FID in right_ids))
         
     __sub__ = subtract
     
@@ -495,7 +495,7 @@ class MetaExpressionDNF(object):
                     if not isinstance(cond, tuple) or len(cond) != 3:
                         raise ValueError("The 'condition' expression must be a tuple of length 3, instead: %s" % (repr(cond),))
                     op, aname, aval = cond
-                    if not op in (">" , "<" , ">=" , "<=" , "==" , "=" , "!=", "~~", "~~*", "!~~", "!~~*", "in"):
+                    if not op in (">" , "<" , ">=" , "<=" , "==" , "=" , "!=", "~~", "~~*", "!~~", "!~~*", "in", "present"):
                         raise ValueError("Unrecognized condition operation: %s" % (repr(op,)))                
         
 
@@ -547,6 +547,8 @@ class MetaExpressionDNF(object):
             elif op == "in":
                 val = '"%s"' % (aval,) if isinstance(aval, str) else str(aval)
                 contains_items.append('"%s":[%s]' % (aname, val))
+            elif op == "present":
+                parts.append(f"{table_name}.metadata ? '{aname}'")
             else:
                 if isinstance(aval, (int, float)):
                     parts.append(f"({table_name}.metadata ->> '{aname}')::float {op} {aval}")
@@ -801,7 +803,7 @@ class DBNamedQuery(object):
     @staticmethod
     def get(db, namespace, name):
         c = db.cursor()
-        #print(namespace, name)
+        print("DBNamedQuery:get():", namespace, name)
         c.execute("""select source, parameters
                         from queries
                         where namespace=%s and name=%s""",
