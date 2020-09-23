@@ -1,0 +1,122 @@
+#!/bin/sh
+
+cat data/app_families.csv  data/data_tiers.csv  data/file_formats.csv  data/file_types.csv  data/run_types.csv > data/meta_simple.csv
+
+psql -h ifdb02.fnal.gov ivm \
+	<< _EOF_
+
+drop table attrs cascade;
+drop table meta cascade;
+
+create temp table attrs (
+	file_id text,
+	name	text,
+        type	text,
+	ivalue	bigint,
+	fvalue	double precision,
+	svalue	text
+);
+
+truncate attrs;
+
+\echo importing attrs
+
+
+\copy attrs(file_id, name, type, ivalue, fvalue, svalue) from 'data/meta_simple.csv'
+
+\echo creating attrs index
+create index attrs_file_id on attrs(file_id);
+
+\echo importing runs/subruns
+
+create temp table runs_subruns (
+	file_id	text,
+	name	text,
+	value	bigint[]
+);
+
+truncate runs_subruns;
+
+\copy runs_subruns(file_id, name, value) from 'data/runs_subruns.csv';
+
+create index rr_file_id on runs_subruns(file_id);
+
+create temp view iattrs as
+	select file_id, jsonb_object_agg(name, ivalue) as obj
+		from attrs
+		where type = 'i' and ivalue is not null
+		group by file_id
+;
+
+create temp view fattrs as
+	select file_id, jsonb_object_agg(name, fvalue) as obj
+		from attrs
+		where type = 'f' and fvalue is not null
+		group by file_id
+;
+
+create temp view sattrs as
+	select file_id, jsonb_object_agg(name, svalue) as obj
+		from attrs
+		where type = 's' and svalue is not null
+		group by file_id
+;
+
+create temp view rr_merged as
+	select file_id, jsonb_object_agg(name, value) as obj
+		from runs_subruns
+		group by file_id
+;
+
+create temp table meta (
+	file_id text,
+	meta	jsonb
+);
+
+\echo building meta ...
+
+insert into meta (file_id, meta)
+(
+	select r.file_id, 
+			coalesce(i.obj, '{}')::jsonb 
+			|| coalesce(f.obj, '{}')::jsonb 
+			|| coalesce(s.obj, '{}')::jsonb 
+			|| coalesce(l.obj, '{}')::jsonb
+		from raw_files r
+			left outer join iattrs i on i.file_id = r.file_id
+			left outer join fattrs f on f.file_id = r.file_id
+			left outer join sattrs s on s.file_id = r.file_id
+			left outer join rr_merged l on l.file_id = r.file_id
+);
+			
+
+\echo merging...
+
+drop table files;
+
+create table files
+(
+        file_id text,
+        namespace       text,
+        name            text,
+        create_user     text,
+        create_timestamp        timestamp with time zone,
+        size            bigint,
+        metadata        jsonb
+);
+
+insert into files(file_id, namespace, name, create_user, create_timestamp, size, metadata)
+(
+	select f.file_id, 'dune', name, create_user, to_timestamp(f.create_timestamp), size, m.meta
+		from raw_files f
+			left outer join meta m on( f.file_id = m.file_id)
+);
+
+\echo ... creating primary key ...
+
+alter table files add primary key(file_id);
+
+
+
+
+_EOF_
