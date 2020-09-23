@@ -2,9 +2,7 @@ import sys, getopt, os, json, pprint
 from urllib.request import urlopen, Request
 from urllib.parse import quote_plus, unquote_plus
 from metacat.util import to_bytes, to_str
-
-import requests
-
+from metacat.webapi import MetaCatClient
 
 Usage = """
 Usage: 
@@ -29,21 +27,14 @@ def do_query(config, server_url, args):
 
     #print("opts:", opts,"    args:", args)
     
-    url = server_url + "/data/query"
-    params = []
     namespace = opts.get("-N") or opts.get("--namespace")
-    if namespace:
-        params.append("namespace=%s" % (namespace,))
     with_meta = not "--summary" in opts and not "-s" in opts
     with_meta = with_meta or "-m" in opts or "--metadata" in opts
     keys = opts.get("-m") or opts.get("--metadata") or []
     if keys and keys != "all":    keys = keys.split(",")
-    params.append("with_meta=%s" % ("yes" if with_meta else "no"))
-    if params:
-        url += "?" + "&".join(params)
 
     #print("url:", url)
-
+    client = MetaCatClient(server_url)
     if args:
         query_text = args[0]
     else:
@@ -52,27 +43,15 @@ def do_query(config, server_url, args):
             print(Usage)
             sys.exit(2)
         query_text = to_str(open(query_file, "r").read())
-
-    #print("query_text: %s" % (query_text,))
-    response = requests.get(url, data=to_bytes(query_text))
-    #print(response)
-    
-    status = response.status_code
-    if status/100 != 2:
-        print("Error: ", status, "\n", response.text)
-        sys.exit(1)
-
-    body = response.text
+        
+    results = client.run_query(query_text, namespace=namespace, with_metadata = with_meta)
 
     if "--json" in opts or "-j" in opts:
-        data = json.loads(body)
-        print(json.dumps(data, sort_keys=True, indent=4, separators=(',', ': ')))
+        print(json.dumps(results, sort_keys=True, indent=4, separators=(',', ': ')))
         sys.exit(0)
 
-    out = json.loads(body)
-    
     if "--pretty" in opts or "-p" in opts:
-        meta = sorted(out, key=lambda x: x["name"])
+        meta = sorted(results, key=lambda x: x["name"])
         pprint.pprint(meta)
         sys.exit(0)
 
@@ -81,7 +60,7 @@ def do_query(config, server_url, args):
     if "-s" in opts or "--summary" in opts and not with_meta:
         print("%d files" % (len(out),))
     else:
-        for f in out:
+        for f in results:
             meta_lst = []
             meta_out = ""
             if with_meta:

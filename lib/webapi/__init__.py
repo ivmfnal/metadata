@@ -1,1 +1,1 @@
-from .webapi import MetCatClient
+from .webapi import MetaCatClient

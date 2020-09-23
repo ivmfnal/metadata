@@ -1,8 +1,6 @@
 import sys, getopt, os, json, pprint, time
 from metacat.util import to_bytes, to_str, TokenLib
-
-import requests
-
+from metacat.webapi import MetaCatClient
 
 Usage = """
 Show file info:
@@ -65,7 +63,7 @@ _declare_smaple = [
 ]
 
 
-def do_declare(config, server_url, args):
+def do_declare(config, client, args):
     opts, args = getopt.getopt(args, "N:", ["namespace=", "sample"])
     opts = dict(opts)
 
@@ -77,36 +75,14 @@ def do_declare(config, server_url, args):
         print(Usage)
         sys.exit(2)
     
-    url = server_url + "/data/declare"
-    metadata = json.load(open(args[0], "r"))       # parse to validate JSON
+    file_list = json.load(open(args[0], "r"))       # parse to validate JSON
     
-    params = []
-    namespace = opts.get("-N") or opts.get("--namespace")
-    if namespace:
-        params.append("namespace=%s" % (namespace,))
-    params.append("dataset=%s" % (args[1],))
-    
-    url += "?" + "&".join(params)
-
-    tl = TokenLib()
-    token = tl.get(server_url)
-    if not token:
-        print("No valid token found. Please obtain new token")
-        sys.exit(1)
-        
-    response = requests.post(url, data=to_bytes(json.dumps(metadata)), headers={"X-Authentication-Token": token.encode()})
-    
-    status = response.status_code
-    if status/100 != 2:
-        print("Error: ", status, "\n", response.text)
-        sys.exit(1)
-
-    body = response.text
-    print(body)
+    resonse = client.declare_files(args[1], file_list, namespace = namespace)    
+    print(response)
                 
 
 
-def do_show(config, server_url, args):
+def do_show(config, client, args):
     opts, args = getopt.getopt(args, "jmpi:", ["json","meta-only","pretty"])
     opts = dict(opts)
     
@@ -122,24 +98,18 @@ def do_show(config, server_url, args):
 
     #print("opts:", opts,"    args:", args)
     
-    url = server_url + "/data/file"
-    params = []
     meta_only = "--meta-only" in opts or "-m" in opts
     as_json = "--json" in opts or "-j" in opts
     pretty = "-p" in opts or "--pretty" in opts
     
+    name = fid = None
+    
     if args:
-        url += "?name=%s" % (args[0],)
+        name = args[0]
     else:
-        url += "?fid=%s" % (opts["-i"],)
+        fid = opts["-i"]
 
-    response = requests.get(url)
-    status = response.status_code
-    if status/100 != 2:
-        print("Error: ", status, "\n", response.text)
-        sys.exit(1)
-
-    data = json.loads(response.text)
+    data = client.get_file(name=name, fid=fid)
     
     if meta_only:
         data = data.get("metadata", {})
@@ -184,7 +154,7 @@ _update_smaple = [
     }
 ]
 
-def do_update(config, server_url, args):
+def do_update(config, client, args):
     opts, args = getopt.getopt(args, "N:", ["namespace=", "sample"])
     opts = dict(opts)
 
@@ -196,31 +166,11 @@ def do_update(config, server_url, args):
         print(Usage)
         sys.exit(2)
     
-    url = server_url + "/data/update"
-    metadata = json.load(open(args[0], "r"))       # parse to validate JSON
+    data = json.load(open(args[0], "r"))       # parse to validate JSON
     
-    params = []
     namespace = opts.get("-N") or opts.get("--namespace")
-    if namespace:
-        params.append("namespace=%s" % (namespace,))
-    
-    url += "?" + "&".join(params)
-
-    tl = TokenLib()
-    token = tl.get(server_url)
-    if not token:
-        print("No valid token found. Please obtain new token")
-        sys.exit(1)
-        
-    response = requests.post(url, data=to_bytes(json.dumps(metadata)), headers={"X-Authentication-Token": token.encode()})
-    
-    status = response.status_code
-    if status/100 != 2:
-        print("Error: ", status, "\n", response.text)
-        sys.exit(1)
-
-    body = response.text
-    print(body)
+    response = client.update_files(data)
+    print(response)
 
 _add_smaple = [
     {        
@@ -234,7 +184,7 @@ _add_smaple = [
     }
 ]
 
-def do_add(config, server_url, args):
+def do_add(config, client, args):
     opts, args = getopt.getopt(args, "i:j:n:N:", ["namespace=", "json=", "names=", "ids=", "sample"])
     opts = dict(opts)
 
@@ -270,28 +220,9 @@ def do_add(config, server_url, args):
         file_list = [{"name":name} for name in file_names]        
 
     dataset = args[-1]
-    
-    url = server_url + f"/data/add_files?dataset={dataset}"
-
     namespace = opts.get("-N") or opts.get("--namespace")
-    if namespace:
-        url += f"&namespace={namespace}"
-    
-    tl = TokenLib()
-    token = tl.get(server_url)
-    if not token:
-        print("No valid token found. Please obtain new token")
-        sys.exit(1)
-        
-    response = requests.post(url, data=to_bytes(json.dumps(file_list)), headers={"X-Authentication-Token": token.encode()})
-    
-    status = response.status_code
-    if status/100 != 2:
-        print("Error: ", status, "\n", response.text)
-        sys.exit(1)
-
-    body = response.text
-    print(body)
+    out = client.add_files(dataset, file_list, namespace=namespace)
+    print(out)
 
 
 
@@ -301,9 +232,10 @@ def do_file(config, server_url, args):
         sys.exit(2)
         
     command = args[0]
+    client = MetaCatClient(server_url)
     return {
         "declare":      do_declare,
         "add":          do_add,
         "update":       do_update,
         "show":         do_show
-    }[command](config, server_url, args[1:])
+    }[command](config, client, args[1:])

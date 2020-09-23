@@ -1,5 +1,15 @@
-import requests
+import requests, json, fnmatch
 from metacat.util import to_str, to_bytes, TokenLib
+
+class ServerError(Exception):
+    
+    def __init__(self, url, status_code, message):
+        self.URL = url
+        self.StatusCode = status_code
+        self.Message = message
+        
+    def __str__(self):
+        return f"MetaCatServer error:\n  URL: {self.URL}\n  HTTP status code: {self.StatusCode}\n  Message: {self.Message}"
 
 class HTTPClient(object):
 
@@ -33,14 +43,14 @@ class HTTPClient(object):
         return data
         
 
-class MetCatClient(HTTPClient):
+class MetaCatClient(HTTPClient):
     
     def __init__(self, server_url):    
         tl = TokenLib()
         HTTPClient.__init__(self, server_url, tl.get(server_url))
 
-    def list_datasets(self, namespace_pattern=None, name_pattern=None, with_file_couns=False):
-        url = "data/datasets?with_file_counts=%s" % ("yes" if with_file_couns else "no")
+    def list_datasets(self, namespace_pattern=None, name_pattern=None, with_file_counts=False):
+        url = "data/datasets?with_file_counts=%s" % ("yes" if with_file_counts else "no")
         lst = self.get_json(url)
         for item in lst:
             namespace, name = item["namespace"], item["name"]
@@ -83,8 +93,6 @@ class MetCatClient(HTTPClient):
         out = self.post_json(url, file_data)
         return out
         
-    def file(self, request, relpath, name=None, fid=None, with_metadata="yes", with_relations="yes", **args):
-
     def get_file(self, fid=None, name=None, with_metadata = True, with_relations=True):
         assert (fid is None) != (name is None), 'Either name="namespace:name" or fid="fid" must be specified, but not both'
         with_meta = "yes" if with_metadata else "no"
@@ -96,12 +104,27 @@ class MetCatClient(HTTPClient):
             url += f"&fid={fid}"        
         return self.get_json(url)
 
-    def query(self, query, namespace=None, with_metadata=False):
+    def run_query(self, query, namespace=None, with_metadata=False):
         url = "data/query?with_meta=%s" % ("yes" if with_metadata else "no",)
         if namespace:
             url += f"&namespace={namespace}"
         results = self.post_json(url, query)
         return results
+    
+    def create_namespace(self, name, owner_role=None):
+        url = f"data/create_namespace?name={name}"
+        if owner_role:
+            url += f"&owner={owner_role}"
+        return self.get_json(url)
+        
+    def get_namespace(self, name):
+        return self.get_json(f"data/namespace?name={name}")
+        
+    def list_namespaces(self, pattern=None):
+        lst = self.get_json("data/namespaces")
+        for item in lst:
+            if pattern is None or fnmatch.fnmatch(item["name"], pattern):
+                yield item
         
         
         

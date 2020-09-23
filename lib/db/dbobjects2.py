@@ -1013,7 +1013,7 @@ class DBNamespace(object):
     def to_jsonable(self):
         return dict(
             name=self.Name,
-            owner=self.Owner
+            owner=self.Owner.Name
         )
         
     def save(self):
@@ -1054,6 +1054,9 @@ class DBNamespace(object):
             lst = (ns for ns in lst if owned_by_user in ns.Owner)
         return lst
 
+    @staticmethod
+    def exists(db, name):
+        return DBNamespace.get(db, name) != None
 
 class DBRole(object):
 

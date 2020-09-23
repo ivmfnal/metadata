@@ -10,10 +10,11 @@ Usage:
     Server host:port can also be specified using environment variable METACAT_SERVER
     
     Commands are:
-        admin create, password, add, remove, list     -- requires direct connection to the database 
-        auth login, whoami, list
-        dataset create, list, show
-        file declare, update, show, add
+        admin      create, password, add, remove, list     -- requires direct connection to the database 
+        auth       login, whoami, list
+        dataset    create, list, show
+        namespace  create, list, show
+        file       declare, update, show, add
         query
 """
 
@@ -58,6 +59,9 @@ elif cmd == "dataset":
 elif cmd == "file":
     from metacat_file import do_file
     do_file(config, server_url, args)
+elif cmd == "namespace":
+    from metacat_namespace import do_namespace
+    do_namespace(config, server_url, args)
     
 else:
     print(Usage)
