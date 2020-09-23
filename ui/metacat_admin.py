@@ -3,11 +3,11 @@ from metacat.db import DBUser
 import psycopg2
 
 Usage="""
-metacat -c <config file> admin create <username> <password>
-metacat -c <config file> admin password <username> <password>
-metacat -c <config file> admin add <username>                 - add Admin privileges
-metacat -c <config file> admin remove <username>              - remove Admin privileges
-metacat -c <config file> list
+metacat -c <config file> admin  create <username> <password>   - create new admin account
+                                password <username> <password> - change admins password
+                                add <username>                 - add admin privileges
+                                remove <username>              - remove admin privileges
+                                list                           - list all admin accounts
 
 Required direct access to the database. The config file must include:
 
@@ -43,7 +43,7 @@ def do_create(config, args):
         print("User already exists. Leaving users status unchanged. Use 'metacat admin add ...'")
         sys.exit(1)
     u = DBUser(db, username, "Admin", "", flags="a")
-    u.set_authenticators("password", [password])
+    u.set_password(password)
     u.save()
     print("Admin user %s created" % (username,))
 
@@ -57,7 +57,7 @@ def do_password(config, args):
     if u is None or not u.is_admin():
         print("User does not exist or is not an Admin. Leaving the password unchanged.")
         sys.exit(1)
-    u.set_authenticators("password", [password])
+    u.set_password(password)
     u.save()
     print("Password updated")
     

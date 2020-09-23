@@ -44,9 +44,13 @@ meta_or:    meta_and ( "or" meta_and )*
 meta_and:   term_meta ( "and" term_meta )*
 
 term_meta:  ANAME CMPOP constant                    -> cmp_op
+    | ANAME "present"?                              -> present_op                   //# new
+    | ANAME "[" index "]" CMPOP constant            -> subscript_cmp_op             //# new
     | constant "in" ANAME                           -> in_op
+    | ANAME "contains" constant                     -> contains_op                  //# new
     | "(" meta_exp ")"                              -> s_
     | "!" term_meta                                 -> meta_not
+    | "eval" FNAME "(" constant_list ")"            -> eval                         //# new
     
 constant_list:    constant? ("," constant)*                    
 
@@ -55,13 +59,16 @@ constant : SIGNED_FLOAT                             -> float_constant
     | SIGNED_INT                                    -> int_constant
     | BOOL                                          -> bool_constant
 
+index:  STRING
+    | SIGNED_INT
+
 ANAME: WORD ("." WORD)*
 
 FNAME: LETTER ("_"|"-"|"."|LETTER|DIGIT)*
 
 WORD: LETTER ("_"|LETTER|DIGIT)*
 
-CMPOP: ">" | "<" | ">=" | "<=" | "==" | "=" | "!=" | "~~" | "~~*" | "!~~" | "!~~*" 
+CMPOP:  "<" "="? | "!"? "=" "="? | "!"? "~~" "*"? | ">" "="? 
 
 BOOL: "true"i | "false"i
 

@@ -1,1 +1,1 @@
-from .mql9 import parse_query
+from .mql9 import parse_query, MQLQuery

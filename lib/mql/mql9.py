@@ -81,7 +81,7 @@ class _MetaRegularizer(Ascender):
                 and_exp = []
                 assert meta_and.T == "meta_and"
                 for c in meta_and.C:
-                    assert c.T in CMP_OPS or c.T == "in", "Unknown operation %s, expected cmp op or 'in'" % (c.T,)
+                    assert c.T in CMP_OPS or c.T in ("in", "present", "not_present"), "Unknown comparison operation %s" % (c.T,)
                     and_exp.append((c.T, c.C[0], c.C[1]))
                 or_exp.append(and_exp)
             return or_exp
@@ -215,8 +215,9 @@ class FileQuery(object):
         return "FileQuery(%s)" % (self.Tree.pretty(),)
         
     def assemble(self, db, default_namespace = None):
-        #print("Query.assemble: self.Assembled:", self.Assembled)
+        #print("FileQuery.assemble: self.Assembled:", self.Assembled)
         if self.Assembled is None:
+            #print("FileQuery.assemble: assembling...")
             self.Assembled = _Assembler(db, default_namespace).walk(self.Tree)
         return self.Assembled
         
@@ -265,7 +266,7 @@ class _Converter(Transformer):
             params, query = args
             print("_Converter.query(): applying params:", params)
             q = _ParamsApplier().walk(query, params)
-            #print("_Converter.query(): after applying params:", q.pretty())
+            print("_Converter.query(): after applying params:", q.pretty())
         else:
             q = args[0]
             
@@ -467,6 +468,16 @@ class _Converter(Transformer):
         
     def in_op(self, args):
         return Node("in", [args[1].value, args[0]])
+
+    def contains_op(self, args):
+        return Node("in", [args[0].value, args[1]])
+        
+    def subscript_cmp_op(self, args):
+        # ANAME "[" index "]" CMPOP constant 
+        return Node("subscript_cmp", [args[0].value, args[1], args[2].value, args[3]])
+        
+    def index(self, args):
+        return args[0].value
         
     def meta_and(self, args):
         children = []
@@ -485,8 +496,14 @@ class _Converter(Transformer):
             else:
                 children.append(a)
         return Node("meta_or", children)
+        
+    def present_op(self, args):
+        assert len(args) == 1
+        return Node("present", [args[0].value, None])
 
     def _apply_not(self, node):
+        if node.T in ("meta_and", "meta_or") and len(node.C) == 1:
+            return self._apply_not(node.C[0])
         if node.T == "meta_and":
             return Node("meta_or", [self._apply_not(c) for c in node.C])
         elif node.T == "meta_or":
@@ -508,6 +525,14 @@ class _Converter(Transformer):
                 "!=":    "=="
             }[node.T]
             return Node(new_op, node.C)
+        elif node.T == "present":
+            assert len(node.C) == 1 or (len(node.C) == 2 and node.C[1] is None)
+            return Node("not_present", node.C)
+        elif node.T == "not_present":
+            assert len(node.C) == 1 or (len(node.C) == 2 and node.C[1] is None)
+            return Node("present", node.C)
+        else:
+            raise ValueError("Unknown node type %s while trying to apply NOT operation" % (node.T,))
             
     def meta_not(self, children):
         assert len(children) == 1
@@ -530,7 +555,9 @@ class _Assembler(Ascender):
         #print("_Assembler.named_query()")
         namespace, name = query_name
         namespace = namespace or self.DefaultNamespace
-        tree = Query.from_db(self.DB, namespace, name).parse()
+        parsed = MQLQuery.from_db(self.DB, namespace, name)
+        assert parsed.Type == "file"
+        tree = parsed.Tree
         tree = _ParamsApplier().walk(tree, {"namespace":namespace})
         #print("_Assembler.named_query: returning:", tree.pretty())
         return tree
@@ -783,6 +810,8 @@ class _FileEvaluator(Ascender):
         if op == "meta_or":     op = "or"
         if op in self.BOOL_OPS:
             return self._eval_meta_bool(f, op, args)
+        elif op == "present":
+            return f.has_attribute(args[0])
         else:
             # 
             name, value = args
@@ -856,8 +885,29 @@ def parse_query(text):
     parsed = _Parser.parse(text)
     #print("parsed:---\n", parsed)
     return _Converter().convert(parsed)
-        
 
+class MQLQuery(object):
+    
+    @staticmethod
+    def parse(text):
+        out = []
+        for l in text.split("\n"):
+            l = l.split('#', 1)[0]
+            out.append(l)
+        text = '\n'.join(out)
+    
+        parsed = _Parser.parse(text)
+        #print("parsed:---\n", parsed)
+        return _Converter().convert(parsed)
+        
+    @staticmethod
+    def from_db(db, namespace, name):
+        q = DBNamedQuery.get(db, namespace, name)
+        if q is None:
+            raise ValueError("Named query %s:%s not found" % (namespace, name))
+        text = q.Source
+        return MQLQuery.parse(text)
+        
 if __name__ == "__main__":
     import sys, traceback
     import psycopg2
@@ -868,36 +918,27 @@ if __name__ == "__main__":
     
         while True:
             q = ""
+            prompt = "(parse|run) ... ;> "
             while not ';' in q:
-                q += input("> ")
-            qtext = q.split(';', 1)[0]
+                q += input(prompt)
+                prompt = "...> "
+            
+            cmd, rest = q.split(None, 1)
+            qtext = test.split(';', 1)[0]
             print (f"--- query ---\n{qtext}\n-------------")
             try:    q = parse_query(qtext)
             except Exception as e:
                 traceback.print_exc()
             else:
-                results = q.run(db, with_meta=True, filters = filters_map)
-                for r in results:
-                    print (r)
+                if cmd == "parse":
+                    q.pprint()
+                else:
+                    results = q.run(db, with_meta=True, filters = filters_map)
+                    for r in results:
+                        print (r)
             
         
     db = psycopg2.connect(sys.argv[2])
 
     interactive(db)
     
-    qtext = open(sys.argv[1], "r").read()
-    q = parse_query(qtext)
-    
-    #print (q)
-
-    print (filters_map)
-
-    results = q.run(db, with_meta=False, filters = filters_map, limit=5)
-    print (results)
-    for x in results:
-        print(x, x.Metadata)
-
-    
-    
-
-        

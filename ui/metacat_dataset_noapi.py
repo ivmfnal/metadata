@@ -1,7 +1,8 @@
 import sys, getopt, os, json, fnmatch
-#from urllib.request import urlopen, Request
-from metacat.util import to_bytes, to_str, TokenLib
-from metacat.webapi import MetaCatClient
+from urllib.request import urlopen, Request
+from urllib.parse import quote_plus, unquote_plus
+from metacat.util import to_bytes, to_str
+from token_lib import TokenLib
 
 Usage = """
 Usage: 
@@ -18,7 +19,7 @@ Usage:
         show [<options>] <namespace>:<name>
 """
 
-def do_list(config, client, args):
+def do_list(config, server_url, tl, args):
     opts, args = getopt.getopt(args, "v", ["--verbose"])
     if args:
         patterns = args
@@ -26,7 +27,8 @@ def do_list(config, client, args):
         patterns = ["*"]
     opts = dict(opts)
     verbose = "-v" in opts or "--verbose" in opts
-    output = client.list_datasets(with_file_counts=verbose)
+    response = urlopen(server_url + "/data/datasets?with_file_counts=%s" % ("yes" if verbose else "no"))
+    output = json.loads(response.read())
     for item in output:
         match = False
         for p in patterns:
@@ -47,31 +49,44 @@ def do_list(config, client, args):
                     
                 
     
-def do_show(config, client, args):
-    print(client.get_dataset(args[0]))
+def do_show(config, server_url, tl, args):
+    response = urlopen(server_url + "/data/dataset?dataset=%s" % (args[0],))
+    output = json.loads(response.read())
+    print(output)
     
-def do_create(config, client, args):
+def do_create(config, server_url, tl, args):
     opts, args = getopt.getopt(args, "p:", ["--parent="])
     opts = dict(opts)
-    dataset_spec = args[0]    
-    parent_spec = opts.get("-p") or opts.get("--parent")
     
-    out = client.create_dataset(dataset_spec, parent = parent_spec)
-    print(out)
+    dataset_spec = args[0]
+    
+    parent_spec = opts.get("-p") or opts.get("--parent")
+    url = server_url + "/data/create_dataset?dataset=%s" % (dataset_spec,)
+    if parent_spec:
+        url += "&parent=%s" % (parent_spec,)
+    
+    token = tl.get(server_url)
+    if not token:
+        print("No valid token found. Please obtain new token")
+        sys.exit(1)
+        
+    request = Request(url, headers={"X-Authentication-Token": token.encode()})
+    response = urlopen(request)
+    output = json.loads(response.read())
+    print(output)
     
 def do_dataset(config, server_url, args):
     if not args:
         print(Usage)
         sys.exit(2)
-
-    client = MetaCatClient(server_url)
-
+        
     command = args[0]
+    tl = TokenLib()
     return {
         "list":     do_list,
         "create":   do_create,
         "show":     do_show
-    }[command](config, client, args[1:])
+    }[command](config, server_url, tl, args[1:])
     
     
  
