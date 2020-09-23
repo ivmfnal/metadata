@@ -1,8 +1,7 @@
 import sys, getopt, os, json, pickle, time
 from urllib.request import urlopen, Request
 from urllib.parse import quote_plus, unquote_plus
-from metacat.util import to_bytes, to_str, SignedToken, SignedTokenExpiredError, SignedTokenImmatureError
-from token_lib import TokenLib
+from metacat.util import to_bytes, to_str, SignedToken, SignedTokenExpiredError, SignedTokenImmatureError, TokenLib
 from requests.auth import HTTPDigestAuth
 import getpass, requests
 

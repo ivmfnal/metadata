@@ -72,7 +72,7 @@ def do_query(config, server_url, args):
     out = json.loads(body)
     
     if "--pretty" in opts or "-p" in opts:
-        meta = sorted(out, key=lambda x: x["namespace"]+":"+x["name"])
+        meta = sorted(out, key=lambda x: x["name"])
         pprint.pprint(meta)
         sys.exit(0)
 

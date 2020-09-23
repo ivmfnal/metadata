@@ -12,14 +12,10 @@ class Node(object):
         self.C = children[:]
 
     def __str__(self):
-        return "Node(%s (%d) meta:%s)" % (self.T, len(self.C), self.M or "")
+        return "Node(%s (%d children) meta:%s)" % (self.T, len(self.C), self.M)
         
     __repr__ = __str__
         
-    def line(self):
-        meta_print = " (%s)" % (self.M,) if self.M else ""
-        return "%s%s" % (self.T, meta_print)
-
     def __add__(self, lst):
         return Node(self.T, self.C + lst, self.M)
         
@@ -43,12 +39,20 @@ class Node(object):
         
     def _pretty(self, indent=""):
         out = []
-        out.append("%s%s" % (indent, self.line()))
+        out.append("%s%s" % (indent, self.T))
+        if self.M is not None:
+            if isinstance(self.M, Node):
+                meta_pretty = self.M._pretty(indent+"    ")
+                out.append("%s  m: %s" % (indent, meta_pretty[0].strip()))
+                out += meta_pretty[1:]
+            else:
+                out.append("%s  m: %s" % (indent, self.M))
+        
         for c in self.C:
             if isinstance(c, Node):
-                out += c._pretty(indent+"    ")
+                out += c._pretty(indent+"  ")
             else:
-                out.append("%s%s" % (indent + "    ", repr(c)))
+                out.append("%s%s" % (indent + "  ", repr(c)))
         return out
         
     def pretty(self):

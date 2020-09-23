@@ -1,6 +1,5 @@
 import sys, getopt, os, json, pprint, time
-from metacat.util import to_bytes, to_str
-from token_lib import TokenLib
+from metacat.util import to_bytes, to_str, TokenLib
 
 import requests
 

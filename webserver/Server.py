@@ -713,6 +713,9 @@ class DataHandler(BaseHandler):
         return dataset.to_json(), "text/json"  
         
     def add_files(self, request, relpath, namespace=None, dataset=None, **args):
+        #
+        # add existing files to a dataset
+        #
         user = self.authenticated_user()
         if user is None:
             return 401

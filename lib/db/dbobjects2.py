@@ -495,7 +495,7 @@ class MetaExpressionDNF(object):
                     if not isinstance(cond, tuple) or len(cond) != 3:
                         raise ValueError("The 'condition' expression must be a tuple of length 3, instead: %s" % (repr(cond),))
                     op, aname, aval = cond
-                    if not op in (">" , "<" , ">=" , "<=" , "==" , "=" , "!=", "~~", "~~*", "!~~", "!~~*", "in", "present"):
+                    if not op in (">" , "<" , ">=" , "<=" , "==" , "=" , "!=", "~~", "~~*", "!~~", "!~~*", "in", "present", "not_present"):
                         raise ValueError("Unrecognized condition operation: %s" % (repr(op,)))                
         
 
@@ -538,18 +538,35 @@ class MetaExpressionDNF(object):
     def sql_and(self, and_term, table_name):
         contains_items = []
         parts = []
-        for op, aname, aval in and_term:
+        for tup in and_term:
+            op, args = tup[0], tup[1:]
             if op in ("=", "=="):
+                aname, aval = args
                 v = str(aval)
                 if isinstance(aval, str):       v = '"%s"' % (aval,)
                 elif isinstance(aval, bool):    v = "true" if aval else "false"
                 contains_items.append('"%s":%s' % (aname, v))
             elif op == "in":
+                aname, aval = args
                 val = '"%s"' % (aval,) if isinstance(aval, str) else str(aval)
                 contains_items.append('"%s":[%s]' % (aname, val))
             elif op == "present":
+                aname = args[0]
                 parts.append(f"{table_name}.metadata ? '{aname}'")
+            elif op == "not_present":
+                aname = args[0]
+                parts.append(f"not ({table_name}.metadata ? '{aname}')")
+            elif op == "subscript_cmp":
+                aname, inx, cmpop, aval = args
+                v = str(aval)
+                if isinstance(aval, str):       v = '"%s"' % (aval,)
+                elif isinstance(aval, bool):    v = "true" if aval else "false"
+                if cmpop in ('=', '==') and isinstance(inx, str):
+                    contains_items.append(f'"{aname}":{"{inx}":{v}}')
+                else:
+                    parts.append[f"{table_name}.metadata #> '{{{aname},{inx}}}' {cmpop} {v}"]
             else:
+                aname, aval = args
                 if isinstance(aval, (int, float)):
                     parts.append(f"({table_name}.metadata ->> '{aname}')::float {op} {aval}")
                 elif isinstance(aval, str):
@@ -557,7 +574,7 @@ class MetaExpressionDNF(object):
 
         if contains_items:
             parts.append("%s.metadata @> '{%s}'" % (table_name, ",".join(contains_items )))
-        return " and ".join(parts)
+        return " and ".join([f"({p})" for p in parts])
         
     def sql(self, table_name):
         if self.Expression:

@@ -28,9 +28,9 @@ create table authenticators
 
 create table namespaces
 (
-	name	text	primary key,
-	owner	text    references  roles(name),
-    creator             text references users(username),
+	name                text        primary key,
+	owner               text        references  roles(name),
+    creator        text references users(username),
     created_timestamp   timestamp with time zone        default now()
 );
 
@@ -40,7 +40,8 @@ create table files
     namespace   text 	references namespaces(name),
     name        text,
     metadata    jsonb,
-    creator             text references users(username),
+    creator text references users(username),
+    size        bigint,
     created_timestamp   timestamp with time zone    default now()
 );
 
@@ -68,8 +69,10 @@ create table datasets
     foreign key (parent_namespace, parent_name) references datasets(namespace, name),
     metadata    jsonb,
     required_metadata   text[],
-    creator             text references users(username),
-    created_timestamp   timestamp with time zone     default now()
+    creator        text references users(username),
+    created_timestamp   timestamp with time zone     default now(),
+    expiration          timestamp with time zone,
+    description         text
 );
 
 create index datasets_meta_index on datasets using gin (metadata);
@@ -123,7 +126,7 @@ create table parameter_definitions
     text_values     text[],
     text_pattern    text,
     bollean_value   boolean,
-    is_null         boelean,
+    required        boolean,
     creator             text references users(username),
     created_timestamp   timestamp with time zone        default now(),
     primary key(category, name)
