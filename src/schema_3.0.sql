@@ -31,7 +31,7 @@ create table namespaces
 	name	text	primary key,
 	owner	text    references  roles(name),
     creator             text references users(username),
-    created_timestamp   timestamp with timezone
+    created_timestamp   timestamp with time zone
 );
 
 create table files
@@ -41,7 +41,7 @@ create table files
     name        text,
     metadata    jsonb,
     creator             text references users(username),
-    created_timestamp   timestamp with timezone
+    created_timestamp   timestamp with time zone
 );
 
 create unique index file_names_unique on files(namespace, name);
@@ -68,7 +68,7 @@ create table datasets
     foreign key (parent_namespace, parent_name) references datasets(namespace, name),
     metadata    jsonb,
     creator             text references users(username),
-    created_timestamp   timestamp with timezone
+    created_timestamp   timestamp with time zone
 );
 
 create index datasets_meta_index on datasets using gin (metadata);
@@ -91,7 +91,7 @@ create table queries
     source      text,
     primary key(namespace, name),
     creator             text references users(username),
-    created_timestamp   timestamp with timezone
+    created_timestamp   timestamp with time zone
 );
 
 create table parameter_categories
@@ -100,7 +100,7 @@ create table parameter_categories
     owner       text    references  roles(name),
     restricted  boolean default 'false',
     creator             text references users(username),
-    created_timestamp   timestamp with timezone
+    created_timestamp   timestamp with time zone
 );
 
 create table parameter_definitions
@@ -122,7 +122,7 @@ create table parameter_definitions
     text_values     text[],
     text_pattern    text,
     creator             text references users(username),
-    created_timestamp   timestamp with timezone
+    created_timestamp   timestamp with time zone
 );
 
     
