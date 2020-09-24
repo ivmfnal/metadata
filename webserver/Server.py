@@ -759,7 +759,7 @@ class DataHandler(BaseHandler):
             ds.add_files(files, do_commit=True)
         return json.dumps([f.FID for f in files]), "text/json"
         
-    def declare(self, request, relpath, namespace=None, dataset=None, **args):
+    def declare_files(self, request, relpath, namespace=None, dataset=None, **args):
         # Declare new files, add to the dataset
         # request body: JSON with list:
         #

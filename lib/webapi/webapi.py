@@ -46,8 +46,8 @@ class HTTPClient(object):
 class MetaCatClient(HTTPClient):
     
     def __init__(self, server_url):    
-        tl = TokenLib()
-        HTTPClient.__init__(self, server_url, tl.get(server_url))
+        self.TL = TokenLib()
+        HTTPClient.__init__(self, server_url, self.TL.get(server_url))
 
     def list_datasets(self, namespace_pattern=None, name_pattern=None, with_file_counts=False):
         url = "data/datasets?with_file_counts=%s" % ("yes" if with_file_counts else "no")
@@ -125,6 +125,31 @@ class MetaCatClient(HTTPClient):
         for item in lst:
             if pattern is None or fnmatch.fnmatch(item["name"], pattern):
                 yield item
-        
-        
-        
+    
+    def login_password(self, username, password):
+        from requests.auth import HTTPDigestAuth
+        server_url = self.ServerURL
+        url = "%s/%s" % (server_url, "/auth/auth")
+        response = requests.get(url, auth=HTTPDigestAuth(username, password))
+        if response.status_code != 200:
+            raise ServerError(url, response.status_code, "Authentication failed")
+        #print(response)
+        #print(response.headers)
+        token = response.headers["X-Authentication-Token"]
+        self.TL[server_url] = token
+        token = self.TL[server_url]
+        return token["user"], token.Expiration
+
+    def auth_info(self):
+        server_url = self.ServerURL
+        token = self.TL.get(server_url)
+        if not token:
+            raise ValueError("No token found for server %s" % (server_url,))
+        url = server_url + "/auth/verify"
+        response = requests.get(url, headers={
+                "X-Authentication-Token":token.encode()
+        })
+        if response.status_code/100 == 2:
+            return token["user"], token.Expiration
+        else:
+            raise ServerError(url, response.status_code, "Verification failed")
