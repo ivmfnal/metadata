@@ -833,28 +833,86 @@ class DataHandler(BaseHandler):
                     for f in files
         ]
         return json.dumps(out), "text/json"
+        
+    def update_meta_bulk(self, db, user, data, mode, default_namespace):
+        new_meta = data["metadata"]
+        ids = data.get("fids")
+        names = data.get("names")
+        new_meta = data["metadata"]
+        if (names is None) == (ids is None):
+            return "Either file ids or names must be specified, but not both", 400
+            
+        if ids:
+            file_set = DBFileSet.from_id_list(db, ids)
+        else:
+            file_set = DBFileSet.from_name_list(db, names, default_namespace=default_namespace)
+        file_set = list(file_set)
+        verified_namespaces = set()
+        out = []
+        for f in file_set:
+            namespace = f.Namespace
+            if not namespace in verified_namespaces:
+                ns = DBNamespace.get(db, namespace)
+                if not user in ns.Owner:
+                    return f"Permission to declare files to namespace {namespace} denied", 403
+                verified_namespaces.add(namespace)
+
+            meta = new_meta
+            if mode == "update":
+                meta = {}
+                meta.update(f.metadata())   # to make a copy
+                meta.update(new_meta)
+            f.Metadata = meta
+            
+            out.append(                    
+                dict(
+                        name="%s:%s" % (f.Namespace, f.Name), 
+                        fid=f.FID,
+                        metadata=meta
+                    )
+            )
+        
+        DBFile.update_many(db, file_set, do_commit=True)
+        return json.dumps(out), 200
+        
                 
-    def update(self, request, relpath, namespace=None, **args):
-        # Declare new files, add to the dataset
-        # request body: JSON with list:
+    def update_meta(self, request, relpath, namespace=None, mode="update", **args):
+        # mode dan be "update" - add/pdate metadata with new values
+        #             "replace" - discard old metadata and update with new values
+        # 
+        # Update metadata for existing files
         #
+        # mode1: metadata for each file is specified separately
         # [
         #       {       
         #               name: "namespace:name",   or "name", but then default namespace must be specified
         #               fid: "fid",               // optional
         #               parents:        [fid,...],              // optional
         #               metadata: { ... }       // optional
-        #       },...
+        #       }, ... 
         # ]
-        #               
+        #
+        # mode2: common changes for many files, cannot be used to update parents
+        # {
+        #   names: [ ... ], # either names or fids must be present, but not both
+        #   fids:  [ ... ],
+        #   metadata: { ... }
+        # }
+        #
         default_namespace = namespace
         user = self.authenticated_user()
         if user is None:
             return 403
-            
+        db = self.App.connect()
+        data = json.loads(request.body)
         verified_namespaces = set()
 
-        db = self.App.connect()
+        if isinstance(data, dict):
+            return self.update_meta_bulk(db, user, data, mode, default_namespace)
+        else:
+            return "Not implemented", 400
+            
+        
 
         file_list = json.loads(request.body) if request.body else []
         if not file_list:
@@ -923,7 +981,8 @@ class DataHandler(BaseHandler):
             f = DBFile.get(db, namespace=namespace, name=name)
         return f.to_json(with_metadata=with_metadata, with_relations=with_relations), "text/json"
             
-    def query(self, request, relpath, query=None, namespace=None, with_meta="no", **args):
+    def query(self, request, relpath, query=None, namespace=None, with_meta="no", 
+                    add_to=None, save_as=None, expiration=None, **args):
         with_meta = with_meta == "yes"
         namespace = namespace or self.App.DefaultNamespace
         if query is not None:
@@ -936,19 +995,66 @@ class DataHandler(BaseHandler):
             query_text = request.body
             #print("query from body:", query_text)
         query_text = to_str(query_text or "")
+        
+        add_namespace = add_name = ds_namespace = ds_name = None
+
+        db = self.App.connect()
+        user = self.authenticated_user()
+
+        if save_as:
+            if user is None:
+                return 401
+            ds_namespace, ds_name = parse_name(save_as, namespace)
+            ns = DBNamespace.get(db, ds_namespace)
+
+            if ns is None:
+                return f"Namespace {ds_namespace} does not exist", 404
+
+            if not user in ns.Owner:
+                return f"Permission to create a dataset in the namespace {namespace} denied", 403
+
+            if DBDataset.exists(db, ds_namespace, ds_name):
+                return "Already exists", 409
+
+        if add_to:
+            if user is None:
+                return 401
+            add_namespace, add_name = parse_name(add_to, namespace)
+            ns = DBNamespace.get(db, add_namespace)
+
+            if ns is None:
+                return f"Namespace {add_namespace} does not exist", 404
+
+            if not DBDataset.exists(db, add_namespace, add_name):
+                return f"Dataset {add_namespace}:{add_name} does not exist", 404
+
+            if not user in ns.Owner:
+                return f"Permission to add files to dataset in the namespace {add_namespace} denied", 403
+
         t0 = time.time()
         if not query_text:
             return "[]", "text/json"
             
-        db = self.App.connect()
         query = MQLQuery.parse(query_text)
         query_type = query.Type
         results = query.run(db, filters=self.App.filters(), with_meta=with_meta, default_namespace=namespace or None)
 
         if not results:
             return "[]", "text/json"
-            
+
         if query_type == "file":
+            
+            if save_as:
+                results = list(results)
+                ds = DBDataset(db, ds_namespace, ds_name)
+                ds.save()
+                ds.add_files(results)            
+            
+            if add_to:
+                results = list(results)
+                ds = DBDataset(db, add_namespace, add_name)
+                ds.add_files(results)      
+            
             if with_meta:
                 data = (
                     { 
@@ -972,6 +1078,7 @@ class DataHandler(BaseHandler):
                         "metadata": {}
                     } for d in results 
             )
+            
         return self.json_chunks(data), "text/json"
         
     def named_queries(self, request, relpath, namespace=None, **args):

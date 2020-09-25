@@ -76,6 +76,28 @@ class DBFileSet(object):
             )
         )
         
+    @staticmethod
+    def from_id_list(db, lst):
+        c = db.cursor()
+        c.execute("""
+            select id, namespace, name, metadata from files
+                where id = any(%s)""", (list(lst),))
+        return DBFileSet.from_tuples(db, fetch_generator(c))
+    
+    @staticmethod
+    def from_name_list(db, names, default_namespace=None):
+        full_names = [parse_name(x, default_namespace) for x in names]
+        just_names = [name for ns, name in full_names]
+        joined = set("%s:%s" % t for t in full_names)
+        c = db.cursor()
+        c.execute("""
+            select id, namespace, name, metadata from files
+                where name = any(%s)""", (just_names,))
+        selected = ((fid, namespace, name, metadata) 
+                    for (fid, namespace, name, metadata) in fetch_generator(c)
+                    if "%s:%s" % (namespace, name) in joined)
+        return DBFileSet.from_tuples(db, selected)
+    
     def __iter__(self):
         return limited(self.Files, self.Limit)
                         
@@ -651,7 +673,11 @@ class DBDataset(object):
         dataset.Frozen = frozen
         dataset.Monotonic = monotonic
         return dataset
-        
+
+    @staticmethod
+    def exists(db, namespace, name):
+        return DBDataset.get(db, namespace, name) is not None
+
     @staticmethod
     def list(db, namespace=None, parent_namespace=None, parent_name=None):
         namespace = namespace.Name if isinstance(namespace, DBNamespace) else namespace

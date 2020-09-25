@@ -19,23 +19,63 @@ Declare new files:
     
 Update file metadata:
 
-    update <options> <json file>
-           -N|--namespace <default namespace>           - default namespace for files
-    update --sample                                     - print JSON file sample
+    update <options> @<JSON file with metadata>
+    update <options> '<JSON expression>'
+        -N|--namespace <default namespace>           - default namespace for files
+        
+        -n|--names <file namespace>:<file name>[,...] <dataset namespace>:<dataset name>
+        -n|--names=@       <dataset namespace>:<dataset name>   - read the list from stdin
+        -n|--names=@<file> <dataset namespace>:<dataset name>   - read the list from file
+        
+        -i|--ids <file id>[,...] <dataset namespace>:<dataset name>
+        -i|--ids=@       <dataset namespace>:<dataset name>     - read the list from stdin
+        -i|--ids=@<file> <dataset namespace>:<dataset name>     - read the list from file
+        
+
+Update files:
+
+    update <options> <JSON file with file data>
+        -N|--namespace <default namespace>           - default namespace for files
+        --sample                                     - print JSON file sample
+
 
 Add file(s) to dataset:
 
+    Add files by file name:
     add -n|--names <file namespace>:<file name>[,...] <dataset namespace>:<dataset name>
-    add -n|--names @<file with file names> <dataset namespace>:<dataset name>
-        file must contain one <namespace>:<name> per line
+    add -n|--names=@       <dataset namespace>:<dataset name>   - read the list from stdin
+    add -n|--names=@<file> <dataset namespace>:<dataset name>   - read the list from file
+    
+    Add files by file id:
     add -i|--ids <file id>[,...] <dataset namespace>:<dataset name>
-    add -i|--ids @<file with file ids> <dataset namespace>:<dataset name>
-        file must contain one <file id> per line
+    add -i|--ids=@       <dataset namespace>:<dataset name>     - read the list from stdin
+    add -i|--ids=@<file> <dataset namespace>:<dataset name>     - read the list from file
+
     add -j|--json <json file> <dataset namespace>:<dataset name>
     add --sample                                        - print sample JSON file
         -N|--namespace <default namespace>              - default namespace for files and dataset
 """
 
+def read_file_list(opts):
+    if "-i" in opts or "--ids" in opts:
+        field = "fid"
+        source = opts.get("-i") or opts.get("--ids")
+    elif "-n" in opts or "--names" in opts:
+        field = "name"
+        source = opts.get("-n") or opts.get("--names")
+    else:
+        print("File list must be specified either with --names or --ids")
+        print()
+        print(Usage)
+        sys.exit(2)
+
+    if source.startswith("@"):
+        source = sys.stdin if source == "@" else open(source[1:], "r")
+        lst = (x.strip() for x in source.readlines())
+    else:
+        lst = source.split(",")
+
+    return ({field:x} for x in lst if x)
 
 _declare_smaple = [
     {        
@@ -155,21 +195,34 @@ _update_smaple = [
 ]
 
 def do_update(config, client, args):
-    opts, args = getopt.getopt(args, "N:", ["namespace=", "sample"])
+    opts, args = getopt.getopt(args, "i:n:N:r", ["namespace=", "names=", "ids=", "sample", "replace"])
     opts = dict(opts)
 
     if "--sample" in opts:
         print(json.dumps(_update_smaple, sort_keys=True, indent=4, separators=(',', ': ')))
         sys.exit(0)
+        
+    mode = "replace" if ("-r" in opts or "--replace" in opts) else "update"
+    namespace = opts.get("-N") or opts.get("--namespace")
     
     if not args or args[0] == "help":
         print(Usage)
         sys.exit(2)
     
-    data = json.load(open(args[0], "r"))       # parse to validate JSON
-    
-    namespace = opts.get("-N") or opts.get("--namespace")
-    response = client.update_files(data)
+    file_list = read_file_list(opts)
+    names = fids = None
+    if "-i" in opts or "--ids" in opts:
+        fids = [f["fid"] for f in file_list]
+    else:
+        names = [f["name"] for f in file_list]
+        
+    meta = args[0]
+    if meta.startswith('@'):
+        meta = json.load(open(meta, "r"))
+    else:
+        meta = json.loads(" ".join(args))
+
+    response = client.update_meta(meta, names=names, fids=fids, mode=mode, namespace=namespace)
     print(response)
 
 _add_smaple = [
@@ -195,29 +248,13 @@ def do_add(config, client, args):
     if not args or args[0] == "help":
         print(Usage)
         sys.exit(2)
-    
+
     file_list = []
 
     if "-j" in opts or "--json" in opts:
         file_list = json.load(open(opts.get("-f") or opts.get("--files"), "r"))
-    
-    elif "-i" in opts or "--ids" in opts:
-        val = opts.get("-i") or opts.get("--ids")
-        if val.startswith("@"):
-            file_ids = open(val[1:], "r").readlines()
-            file_ids = [fid.strip() for fid in file_ids]
-        else:
-            file_ids = val.split(",")
-        file_list = [{"fid":fid} for fid in file_ids if fid]
-    
     else:
-        val = opts.get("-n") or opts.get("--names")
-        if val.startswith("@"):
-            file_names = open(val[1:], "r").readlines()
-            file_names = [fid.strip() for fid in file_names]
-        else:
-            file_names = val.split(",")
-        file_list = [{"name":name} for name in file_names]        
+        file_list = read_file_list(opts)
 
     dataset = args[-1]
     namespace = opts.get("-N") or opts.get("--namespace")

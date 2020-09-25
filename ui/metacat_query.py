@@ -19,10 +19,12 @@ Usage:
         -m|--metadata=all                   - print all metadata fields
                                               overrides --summary
         -N|--namespace=<default namespace>  - default namespace for the query
+        -S|--save-as=<namespace>:<name>     - save results as a new datset
 """
 
 def do_query(config, server_url, args):
-    opts, args = getopt.getopt(args, "jism:N:pf:", ["json", "ids","summary","metadata=","namespace=","pretty"])
+    opts, args = getopt.getopt(args, "jism:N:pf:S:", ["json", "ids","summary","metadata=","namespace=","pretty",
+                "save-as="])
     opts = dict(opts)
 
     #print("opts:", opts,"    args:", args)
@@ -32,11 +34,12 @@ def do_query(config, server_url, args):
     with_meta = with_meta or "-m" in opts or "--metadata" in opts
     keys = opts.get("-m") or opts.get("--metadata") or []
     if keys and keys != "all":    keys = keys.split(",")
+    save_as = opts.get("-S") or opts.get("--saves-as")
 
     #print("url:", url)
     client = MetaCatClient(server_url)
     if args:
-        query_text = args[0]
+        query_text = " ".join(args)
     else:
         query_file = opts.get("-f")
         if not query_file:
@@ -44,7 +47,7 @@ def do_query(config, server_url, args):
             sys.exit(2)
         query_text = to_str(open(query_file, "r").read())
         
-    results = client.run_query(query_text, namespace=namespace, with_metadata = with_meta)
+    results = client.run_query(query_text, namespace=namespace, with_metadata = with_meta, save_as=save_as)
 
     if "--json" in opts or "-j" in opts:
         print(json.dumps(results, sort_keys=True, indent=4, separators=(',', ': ')))
