@@ -160,6 +160,7 @@ class DBFileSet(object):
 
     def subtract(self, right):
         right_ids = set(f.FID for f in right)
+        #print("DBFileSet: right_ids:", len(right_ids))
         return DBFileSet(self.DB, (f for f in self if not f.FID in right_ids))
         
     __sub__ = subtract
@@ -186,20 +187,70 @@ class DBFileSet(object):
         
     @staticmethod
     def from_basic_query(db, basic_file_query, with_metadata, limit):
-        datasets = list(basic_file_query.DatasetSelector.datasets(db))
-        if not datasets:
-            return DBFileSet(db)      # empty File Set
-        dataset_specs = [(ds.Namespace, ds.Name) for ds in datasets]
+        
         dnf = basic_file_query.wheres_dnf()
         if limit is None:
             limit = basic_file_query.Limit
         elif basic_file_query.Limit is not None:
             limit = min(limit, basic_file_query.Limit)
             
-        if len(datasets) == 1:
+        dataset_selector = basic_file_query.DatasetSelector
+        datasets = None
+        if dataset_selector is not None:
+            datasets = list(basic_file_query.DatasetSelector.datasets(db))
+            if not datasets:
+                return DBFileSet(db)      # empty File Set
+
+        if dataset_selector is None:
+            return DBFileSet.all_files(db, dnf, with_metadata, limit)
+        elif len(datasets) == 1:
             return datasets[0].list_files(with_metadata = with_metadata, condition=dnf, limit=limit)
         else:
-            return DBDataset.files_from_multiple_datasets(db, datasets, dnf, with_metadata, limit)
+            return DBFileSet.files_from_multiple_datasets(db, datasets, dnf, with_metadata, limit)
+            
+    @staticmethod
+    def files_from_multiple_datasets(db, datasets, dnf, with_metadata, limit):
+        datasets = list(datasets)
+        dataset_names = set(ds.Name for ds in datasets)
+        dataset_namespaces = set(ds.Namespace for ds in datasets)
+        specs = ["%s:%s" % (ds.Namespace, ds.Name) for ds in datasets]
+        meta_where_clause = MetaExpressionDNF(dnf).sql("files")
+        limit = "" if limit is None else f"limit {limit}"   
+        meta = "files.metadata" if with_metadata else "null"     
+        sql = f"""select files.id, files.namespace, files.name, {meta}
+                                        from files
+                                        inner join files_datasets fd on fd.file_id = files.id
+                                        where 
+                                            fd.dataset_namespace = any(%s)
+                                            and fd.dataset_name = any(%s)
+                                            and fd.dataset_namespace || ':' || fd.dataset_name = any(%s) 
+                                            and {meta_where_clause}
+                                        {limit}
+                                        """
+
+        #print("DBDataset.files_from_multiple_datasets: sql:", sql)
+        c = db.cursor()
+        c.execute(sql, (list(dataset_namespaces), list(dataset_names), specs))
+        return DBFileSet.from_tuples(db, fetch_generator(c))
+        
+    @staticmethod
+    def all_files(db, dnf, with_metadata, limit):
+        #print("DBDataset.all_files: dnf:", dnf)
+        meta_where_clause = MetaExpressionDNF(dnf).sql("files")
+        limit = "" if limit is None else f"limit {limit}"   
+        meta = "files.metadata" if with_metadata else "null"     
+        sql = f"""select files.id, files.namespace, files.name, {meta}
+                                        from files
+                                        where {meta_where_clause}
+                                        {limit}
+                                        """
+
+        #print("DBDataset.all_files: sql:", sql)
+        c = db.cursor()
+        c.execute(sql)
+        return DBFileSet.from_tuples(db, fetch_generator(c))
+        
+
         
 class DBFile(object):
 
@@ -697,31 +748,6 @@ class DBDataset(object):
                 namespace, name, parent_namespace, parent_name, frozen, monotonic in fetch_generator(c))
 
 
-    @staticmethod
-    def files_from_multiple_datasets(db, datasets, dnf, with_metadata, limit):
-        datasets = list(datasets)
-        dataset_names = set(ds.Name for ds in datasets)
-        dataset_namespaces = set(ds.Namespace for ds in datasets)
-        specs = ["%s:%s" % (ds.Namespace, ds.Name) for ds in datasets]
-        meta_where_clause = MetaExpressionDNF(dnf).sql("files")
-        limit = "" if limit is None else f"limit {limit}"   
-        meta = "files.metadata" if with_metadata else "null"     
-        sql = f"""select files.id, files.namespace, files.name, {meta}
-                                        from files
-                                        inner join files_datasets fd on fd.file_id = files.id
-                                        where 
-                                            fd.dataset_namespace = any(%s)
-                                            and fd.dataset_name = any(%s)
-                                            and fd.dataset_namespace || ':' || fd.dataset_name = any(%s) 
-                                            and {meta_where_clause}
-                                        {limit}
-                                        """
-
-        #print("DBDataset.files_from_multiple_datasets: sql:", sql)
-        c = db.cursor()
-        c.execute(sql, (list(dataset_namespaces), list(dataset_names), specs))
-        return DBFileSet.from_tuples(db, fetch_generator(c))
-        
 
 
     def list_files(self, recursive=False, with_metadata = False, condition=None, relationship="self",
