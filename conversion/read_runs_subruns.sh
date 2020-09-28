@@ -1,5 +1,7 @@
 #!/bin/sh
 
+source config.sh
+
 $IN_DB_PSQL -q > ./data/runs_subruns.csv << _EOF_
 
 create temp view active_files as

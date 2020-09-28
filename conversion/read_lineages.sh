@@ -1,5 +1,7 @@
 #!/bin/sh
 
+source config.sh
+
 $IN_DB_PSQL -q > ./data/lineages.csv << _EOF_
 
 copy (	select distinct l.file_id_source, l.file_id_dest
