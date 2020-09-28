@@ -1,8 +1,11 @@
 #!/bin/sh
 
+source config.sh
+
 cat data/app_families.csv  data/data_tiers.csv  data/file_formats.csv  data/file_types.csv  data/run_types.csv > data/meta_simple.csv
 
-psql -h ifdb02.fnal.gov ivm \
+
+$OUT_DB_PSQL \
 	<< _EOF_
 
 drop table attrs cascade;
@@ -24,8 +27,8 @@ truncate attrs;
 
 \copy attrs(file_id, name, type, ivalue, fvalue, svalue) from 'data/meta_simple.csv'
 
-\echo creating attrs index
-create index attrs_file_id on attrs(id);
+-- \echo creating attrs index
+-- create index attrs_file_id on attrs(file_id);
 
 \echo importing runs/subruns
 
@@ -37,7 +40,7 @@ create temp table runs_subruns (
 
 truncate runs_subruns;
 
-\copy runs_subruns(id, name, value) from 'data/runs_subruns.csv';
+\copy runs_subruns(file_id, name, value) from 'data/runs_subruns.csv';
 
 create index rr_file_id on runs_subruns(file_id);
 
@@ -115,6 +118,7 @@ insert into files(id, namespace, name, create_user, create_timestamp, size, meta
 \echo ... creating primary key ...
 
 alter table files add primary key(id);
+
 alter table parent_child add foreign key(parent_id) references files(id);
 alter table parent_child add foreign key(child_id)  references files(id);
 

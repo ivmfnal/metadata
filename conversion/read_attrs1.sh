@@ -1,7 +1,8 @@
 #!/bin/sh
 
-psql -q -h sampgsdb03.fnal.gov -p 5435 -U samread sam_dune_prd \
-	> ./data/attrs.csv \
+source config.sh
+
+$IN_DB_PSQL > ./data/attrs.csv \
 	<< _EOF_
 
 create temp view active_files as

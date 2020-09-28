@@ -9,5 +9,6 @@ alter table parent_child add foreign key (parent_id) references files(file_id);
 alter table parent_child add foreign key (child_id) references files(file_id);
 
 create index files_meta_index on files using gin (metadata);
+create index files_meta_index on files using gin (metadata jsonb_path_ops);
 
 _EOF_

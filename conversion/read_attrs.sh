@@ -1,6 +1,10 @@
 #!/bin/sh
 
-psql -q -h sampgsdb03.fnal.gov -p 5435 -U samread sam_dune_prd \
+source ./config.sh      # this will define connection strings for IN_DB and OUT_DB
+
+source config.sh
+
+$IN_DB_PSQL -q \
 	> ./data/attrs.csv \
 	<< _EOF_
 

@@ -1,6 +1,8 @@
 #!/bin/sh
 
-psql -q -h sampgsdb03.fnal.gov -p 5435 -U samread sam_dune_prd \
+source config.sh
+
+$IN_DB_PSQL \
 	> ./data/app_families.csv \
 	<< _EOF_
 

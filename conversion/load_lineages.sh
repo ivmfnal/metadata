@@ -1,7 +1,9 @@
 #!/bin/sh
 
-psql -h ifdb02.fnal.gov ivm \
-	<< _EOF_
+
+source config.sh
+
+$OUT_DB_PSQL << _EOF_
 
 drop table parent_child;
 
