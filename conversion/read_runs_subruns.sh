@@ -1,6 +1,6 @@
 #!/bin/sh
 
-source config.sh
+source ./config.sh
 
 $IN_DB_PSQL -q > ./data/runs_subruns.csv << _EOF_
 

@@ -1,12 +1,11 @@
 #!/bin/sh
 
-source config.sh
+source ./config.sh
 
 cat data/app_families.csv  data/data_tiers.csv  data/file_formats.csv  data/file_types.csv  data/run_types.csv > data/meta_simple.csv
 
 
-$OUT_DB_PSQL \
-	<< _EOF_
+$OUT_DB_PSQL << _EOF_
 
 drop table attrs cascade;
 drop table meta cascade;

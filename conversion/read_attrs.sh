@@ -1,8 +1,6 @@
 #!/bin/sh
 
-source ./config.sh      # this will define connection strings for IN_DB and OUT_DB
-
-source config.sh
+source ./config.sh
 
 $IN_DB_PSQL -q \
 	> ./data/attrs.csv \
