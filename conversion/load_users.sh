@@ -1,6 +1,6 @@
 #!/bin/sh
 
-source config.sh
+source ./config.sh
 
 $OUT_DB_PSQL << _EOF_
 

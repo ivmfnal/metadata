@@ -1,6 +1,6 @@
 #!/bin/sh
 
-source config.sh
+source ./config.sh
 
 $IN_DB_PSQL > ./data/attrs.csv \
 	<< _EOF_

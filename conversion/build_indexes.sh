@@ -1,7 +1,8 @@
 #!/bin/sh
 
-psql -h ifdb02.fnal.gov ivm \
-	<< _EOF_
+source ./config.sh
+
+$OUT_DB_PSQL << _EOF_
 
 create unique index files_names on files(namespace, name);
 
