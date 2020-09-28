@@ -101,17 +101,17 @@ create table files
         id text,
         namespace       text,
         name            text,
-        create_user     text,
-        create_timestamp        timestamp with time zone,
+        creator     text,
+        created_timestamp        timestamp with time zone,
         size            bigint,
         metadata        jsonb
 );
 
 insert into files(id, namespace, name, create_user, create_timestamp, size, metadata)
 (
-	select f.id, 'dune', name, create_user, to_timestamp(f.create_timestamp), size, m.meta
+	select f.file_id, 'dune', name, create_user, to_timestamp(f.create_timestamp), size, m.meta
 		from raw_files f
-			left outer join meta m on( f.id = m.file_id)
+			left outer join meta m on( f.file_id = m.file_id)
 );
 
 \echo ... creating primary key ...
