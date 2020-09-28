@@ -43,8 +43,6 @@ insert into roles(name, description, users) values ('admin','Admin user','{"admi
 
 insert into namespaces(name, owner, creator) values ('dune','admin','admin');
 
-
-
 create table datasets
 (
     namespace           text references namespaces(name),
@@ -79,14 +77,11 @@ create table files_datasets
 
 insert into files_datasets(file_id, dataset_namespace, dataset_name)
 (
-	select f.file_id, 'dune','all'
+	select f.id, 'dune','all'
 		from files f
 );
 
 alter table files_datasets add primary key (dataset_namespace, dataset_name, file_id);
-alter table files_datasets add foreign key (dataset_namespace, dataset_name) references datasets(namespace, name);
-alter table files_datasets add foreign key (file_id) references files(file_id);
-create index files_datasets_file_id on files_datasets(file_id);
 
 create table queries
 (
@@ -135,7 +130,6 @@ create table parameter_definitions
 
     
 
--- alter table files add foreign key(namespace) references namespaces(name);
 
 _EOF_
 
