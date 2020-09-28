@@ -25,7 +25,7 @@ truncate attrs;
 \copy attrs(file_id, name, type, ivalue, fvalue, svalue) from 'data/meta_simple.csv'
 
 \echo creating attrs index
-create index attrs_file_id on attrs(file_id);
+create index attrs_file_id on attrs(id);
 
 \echo importing runs/subruns
 
@@ -37,7 +37,7 @@ create temp table runs_subruns (
 
 truncate runs_subruns;
 
-\copy runs_subruns(file_id, name, value) from 'data/runs_subruns.csv';
+\copy runs_subruns(id, name, value) from 'data/runs_subruns.csv';
 
 create index rr_file_id on runs_subruns(file_id);
 
@@ -83,10 +83,10 @@ insert into meta (file_id, meta)
 			|| coalesce(s.obj, '{}')::jsonb 
 			|| coalesce(l.obj, '{}')::jsonb
 		from raw_files r
-			left outer join iattrs i on i.file_id = r.file_id
-			left outer join fattrs f on f.file_id = r.file_id
-			left outer join sattrs s on s.file_id = r.file_id
-			left outer join rr_merged l on l.file_id = r.file_id
+			left outer join iattrs i on i.file_id = r.id
+			left outer join fattrs f on f.file_id = r.id
+			left outer join sattrs s on s.file_id = r.id
+			left outer join rr_merged l on l.file_id = r.id
 );
 			
 
@@ -96,7 +96,7 @@ drop table files;
 
 create table files
 (
-        file_id text,
+        id text,
         namespace       text,
         name            text,
         create_user     text,
@@ -105,16 +105,18 @@ create table files
         metadata        jsonb
 );
 
-insert into files(file_id, namespace, name, create_user, create_timestamp, size, metadata)
+insert into files(id, namespace, name, create_user, create_timestamp, size, metadata)
 (
-	select f.file_id, 'dune', name, create_user, to_timestamp(f.create_timestamp), size, m.meta
+	select f.id, 'dune', name, create_user, to_timestamp(f.create_timestamp), size, m.meta
 		from raw_files f
-			left outer join meta m on( f.file_id = m.file_id)
+			left outer join meta m on( f.id = m.file_id)
 );
 
 \echo ... creating primary key ...
 
-alter table files add primary key(file_id);
+alter table files add primary key(id);
+alter table parent_child add foreign key(parent_id) references files(id);
+alter table parent_child add foreign key(child_id)  references files(id);
 
 
 

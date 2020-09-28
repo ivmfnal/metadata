@@ -31,7 +31,7 @@ if cmd == "parse":
     qtext = " ".join(args)
     print("Query text:'%s'" % (qtext,))
     q = parse_query(qtext)
-    print("Parsed:\n")
+    print("Converted:---------------")
     print(q.Tree.pretty())
 elif cmd == "run":
     

@@ -2,6 +2,45 @@ from lark import Lark
 from lark import Transformer, Tree, Token
 import pprint
 
+class Token(object):
+    
+    JSON_CLASS = "token"
+
+    def __init__(self, typ, value):
+        self.T = typ
+        self.V = value
+
+    def __str__(self):
+        return "Token(%s, %s)" % (self.T, self.V)
+
+    def pretty(self):
+        #print("pretty---")
+        return self._pretty()
+        
+    def _pretty(self, indent=""):
+        return ['%s%s "%s"' % (indent, self.T, self.V)]
+
+    def jsonable(self):
+        return dict(T=self.T, V=self.V)
+        
+    def to_json(self):
+        d = self.jsonable()
+        d["///class///"] = self.JSON_CLASS
+        return json.dumps(d)
+
+    @staticmethod
+    def from_jsonable(data):
+        if isinstance(data, dict) and data.get("///class///") == Token.JSON_CLASS:
+            typ = data["T"]
+            val = data["V"]
+            return Token(typ, val)
+        else:
+            return data
+
+    @staticmethod
+    def from_json(text):
+        return Token.from_jsonable(json.loads(text))
+
 class Node(object):
 
     JSON_CLASS = "node"
@@ -42,20 +81,23 @@ class Node(object):
         out.append("%s%s" % (indent, self.T))
         if self.M is not None:
             if isinstance(self.M, Node):
-                meta_pretty = self.M._pretty(indent+"    ")
-                out.append("%s  m: %s" % (indent, meta_pretty[0].strip()))
-                out += meta_pretty[1:]
+                meta_pretty = self.M._pretty("")
+                out.append("%s. m:%s" % (indent, meta_pretty[0]))
+                out += [indent + ". . " + l for l in meta_pretty[1:]]
             else:
-                out.append("%s  m: %s" % (indent, self.M))
+                out.append("%s. (%s)" % (indent, self.M))
         
-        for c in self.C:
-            if isinstance(c, Node):
-                out += c._pretty(indent+"  ")
+        nc = len(self.C)
+        for i, c in enumerate(self.C):
+            extra = ". "
+            if isinstance(c, (Token, Node)):
+                out += c._pretty(indent+extra)
             else:
-                out.append("%s%s" % (indent + "  ", repr(c)))
+                out.append("%s%s" % (indent + ". ", repr(c)))
         return out
         
     def pretty(self):
+        #print("pretty---")
         return "\n".join(self._pretty())
         
     def jsonable(self):
@@ -71,7 +113,7 @@ class Node(object):
 
     @staticmethod
     def from_jsonable(data):
-        if isinstance(data, dict) and data.get("///class///") == "node":
+        if isinstance(data, dict) and data.get("///class///") == Node.JSON_CLASS:
             typ = data["T"]
             if typ == "DataSource":
                 return DataSource.from_jsonable(data)
@@ -192,4 +234,18 @@ class Ascender(object):
         
     def _default(self, node, children):
         return Node(node.T, children=children, meta=node.M)
+        
+class PostParser(Transformer):
+    
+    #
+    # Converts from Tree structure returned by Lark to Nodes
+    #
+    
+    def __default__(self, data, children, meta):
+        #print("PostParser.__default(", data, children, meta, ")")
+        return Node(data, children)
+        
+    def __default_token__(self, token):
+        return Token(token.type, token.value)
+        
         

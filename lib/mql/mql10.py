@@ -1,5 +1,5 @@
 from metacat.db import DBDataset, DBFile, DBNamedQuery, DBFileSet, limited
-from .trees import Node, pass_node, Ascender, Descender, Visitor
+from .trees import Node, pass_node, Ascender, Descender, Visitor, PostParser
 import json, time
 
 from lark import Lark
@@ -8,7 +8,7 @@ import pprint
 
 CMP_OPS = [">" , "<" , ">=" , "<=" , "==" , "=" , "!=", "~~", "~~*", "!~~", "!~~*"]
 
-from .grammar9 import MQL_Grammar
+from .grammar10 import MQL_Grammar
 _Parser = Lark(MQL_Grammar, start="query")
 
 class _MetaRegularizer(Ascender):
@@ -264,35 +264,41 @@ class _Converter(Transformer):
     def query(self, args):
         if len(args) == 2:
             params, query = args
-            print("_Converter.query(): applying params:", params)
+            #print("_Converter.query(): applying params:", params)
             q = _ParamsApplier().walk(query, params)
-            print("_Converter.query(): after applying params:", q.pretty())
+            #print("_Converter.query(): after applying params:", q.pretty())
         else:
             q = args[0]
-            
-        if q.T == "file_query": out = FileQuery(q)
-        elif q.T == "dataset_query": out = DatasetQuery(q)
+        
+        #print("_Converter.query(): q=", q.pretty())
+        
+        if q.T == "top_file_query": out = FileQuery(q.C[0])
+        elif q.T == "top_dataset_query": out = DatasetQuery(q.C[0])
         else:
             raise ValueError("Unrecognozed top level node type: %s" % (q.T,))
         #print("_Converter.query() -> ", out)
         return out
-        
+    
     def convert(self, tree):
         return self.transform(tree)
-        
-    def file_query(self, args):
-        limit = None
-        meta_filter_exp = None
-        for i, arg in enumerate(args):
-            if isinstance(arg, Token) and arg.value == "where":
-                meta_filter_exp = args[i+1]
-            elif isinstance(arg, Token) and arg.value == "limit":
-                limit = int(args[i+1].value)
-        meta = {"limit":limit}
-        if meta_filter_exp is None:
-            return Node("file_query", args[:1], meta=meta)
+
+    def merge_meta(self, m1, m2):
+        if m1 is None or m2 is None:
+            return m1 or m2
         else:
-            return Node("file_query", [Node("meta_filter", args[:1], meta=meta_filter_exp)], meta=meta)
+            m = {}
+            m.update(m1)
+            m.update(m2)
+            return m
+        
+    def limited_file_query_expression(self, args):
+        assert len(args) == 2
+        return Node("limit", [args[0]], meta = int(args[1].value))
+        #return Node("file_query", [args[0]], meta = {"limit":int(args[1].value)})
+
+    def filtered_file_query_expression(self, args):
+        assert len(args) == 2
+        return Node("meta_filter", [args[0]], meta=args[1])
 
     def basic_file_query(self, args):
         assert len(args) == 0 or len(args) == 1 and isinstance(args[0].M, DatasetSelector)
@@ -432,13 +438,14 @@ class _Converter(Transformer):
                 others.append(a)
         return Node("join", joins + others)
         
-    def subtract(self, args):
+    def ___subtract(self, args):
         assert len(args) == 2
         left, right = args
         #print("subtract:")
         #print("  left:", left.pretty())
         #print("  righgt:", right.pretty())
-        return Node("file_query", [Node("minus", [left, right])], meta={"limit":None})
+        #return Node("file_query", [Node("minus", [left, right])], meta={"limit":None})
+        return Node("minus", [left, right])
         
     def qualified_name(self, args):
         assert len(args) in (1,2)
@@ -590,7 +597,7 @@ class _LimitApplier(Descender):
         limit = node.M if limit is None else min(limit, node.M)
         return self.walk(node.C[0], limit)
         
-    def file_query(self, node, limit):
+    def ______file_query(self, node, limit):
         node_limit = node.M.get("limit")
         #print("_LimitApplier.file_query(): node_limit:", node_limit)
         if node_limit is not None:
@@ -616,7 +623,7 @@ class _LimitApplier(Descender):
         return node
         
     def _default(self, node, limit):
-        #print("_LimitPusher._default: node:", node.pretty())
+        #print("_LimitApplier._default: node:", node.pretty())
         if limit is not None:
             new_node = Node(node.T, node.C, node.M)
             self.visit_children(new_node, None)
@@ -752,7 +759,8 @@ class _FileEvaluator(Ascender):
 
     def limit(self, args, meta):
         #print("FileEvaluator.limit(): args:", args)
-        assert len(args) == 1 and isinstance(args[0], DBFileSet)
+        assert len(args) == 1
+        assert isinstance(args[0], DBFileSet)
         if meta is not None:
             return args[0].limit(meta)
         else:
@@ -773,7 +781,7 @@ class _FileEvaluator(Ascender):
     def minus(self, expressions, meta):
         assert len(expressions) == 2
         left, right = expressions
-        #print("minus:", left, right)
+        #print("FileEvaluator.minus():", left, right)
         return left - right
 
     def filter(self, args, meta):
@@ -887,7 +895,7 @@ def parse_query(text):
     text = '\n'.join(out)
     
     parsed = _Parser.parse(text)
-    print("parsed:---\n", parsed.pretty())
+    print("parsed:---\n", PostParser().transform(parsed).pretty())
     return _Converter().convert(parsed)
 
 class MQLQuery(object):

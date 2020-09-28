@@ -634,16 +634,20 @@ class MetaExpressionDNF(object):
                 v = str(aval)
                 if isinstance(aval, str):       v = '"%s"' % (aval,)
                 elif isinstance(aval, bool):    v = "true" if aval else "false"
-                if cmpop in ('=', '==') and isinstance(inx, str):
-                    contains_items.append(f'"{aname}":{"{inx}":{v}}')
+                if cmpop in ('=', '=='):
+                    if inx == '*':
+                        contains_items.append(f'"{aname}":[{v}]')
+                    elif isinstance(inx, str):
+                        contains_items.append(f'"{aname}":{"{inx}":{v}}')
+                    else:
+                        parts.append(f"{table_name}.metadata @@ '$.\"{aname}\"[{inx}] == {v}'")
+                elif inx == '*':
+                    parts.append(f"{table_name}.metadata @@ '$.\"{aname}\"[*] {cmpop} {v}'")
                 else:
-                    parts.append[f"{table_name}.metadata #> '{{{aname},{inx}}}' {cmpop} {v}"]
+                    parts.append(f"{table_name}.metadata ->> '{\"{aname}\",\"{inx}\"}' {cmpop} '{v}'")
             else:
                 aname, aval = args
-                if isinstance(aval, (int, float)):
-                    parts.append(f"({table_name}.metadata ->> '{aname}')::float {op} {aval}")
-                elif isinstance(aval, str):
-                    parts.append(f"{table_name}.metadata ->> '{aname}' {op} '{aval}'")
+                parts.append(f"{table_name}.metadata ->> '{aname}' {op} '{aval}'")
 
         if contains_items:
             parts.append("%s.metadata @> '{%s}'" % (table_name, ",".join(contains_items )))

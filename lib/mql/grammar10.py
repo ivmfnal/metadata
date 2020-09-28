@@ -1,25 +1,33 @@
 MQL_Grammar = """
 query:  ("with" param_def_list)? params_applied_query
 
-?params_applied_query:  file_query             
-    | dataset_query                            
+?params_applied_query:  top_file_query             
+    | top_dataset_query                            
 
-file_query: file_query2                                   
-    | file_query "-" file_query2                          -> subtract
+top_file_query          :    file_query
+top_dataset_query       :    dataset_query
 
-!file_query2: filterable_file_query ("where" meta_exp)? ("limit" SIGNED_INT)?       -> file_query
+?file_query: limited_file_query_expression                                  
+    | file_query "-" limited_file_query_expression                          -> minus
 
-filterable_file_query:  "files" ("from" datasets_selector)? -> basic_file_query
+?limited_file_query_expression: filtered_file_query_expression "limit" SIGNED_INT
+    | filtered_file_query_expression                   
+
+?filtered_file_query_expression: file_query_exression "where" meta_exp           
+    |   file_query_exression                             
+
+?file_query_exression:  term_file_query                   
     |   "union" "(" file_query_list ")"                  -> union
     |   "[" file_query_list "]"                          -> union
     |   "join"  "(" file_query_list ")"                  -> join
     |   "{" file_query_list "}"                          -> join
     |   "parents" "(" file_query ")"                     -> parents_of
     |   "children" "(" file_query ")"                    -> children_of
-//    |   file_query "-" file_query                        -> subtract
-    |   "(" file_query ")"                               -> s_
-    |   "filter" FNAME "(" constant_list ")" "(" file_query_list ")"       -> filter
-    |   "query" qualified_name                           -> named_query
+    |   "(" file_query ")"                               
+
+term_file_query: "files" ("from" datasets_selector)?                        -> basic_file_query
+    |   "filter" FNAME "(" constant_list ")" "(" file_query_list ")"        -> filter
+    |   "query" qualified_name                                              -> named_query
     
 file_query_list: file_query ("," file_query)*     
 

@@ -9,7 +9,7 @@ drop table files cascade;
 
 create table raw_files
 (
-	file_id	text,
+	id	text,
 	name		text,
 	create_timestamp	double precision,
 	create_user	text,
@@ -20,14 +20,14 @@ truncate raw_files;
 
 \echo importing raw files
 
-\copy raw_files(file_id, name, create_timestamp, create_user, size) from 'data/files.csv';
+\copy raw_files(id, name, create_timestamp, create_user, size) from 'data/files.csv';
 
 \echo creating files index
-create index raw_file_id on raw_files(file_id);
+create index raw_file_id on raw_files(id);
 
 create table files
 (
-	file_id	text,
+	id	text,
 	namespace	text,
 	name		text,
 	create_user	text,
