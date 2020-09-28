@@ -85,10 +85,10 @@ insert into meta (file_id, meta)
 			|| coalesce(s.obj, '{}')::jsonb 
 			|| coalesce(l.obj, '{}')::jsonb
 		from raw_files r
-			left outer join iattrs i on i.file_id = r.id
-			left outer join fattrs f on f.file_id = r.id
-			left outer join sattrs s on s.file_id = r.id
-			left outer join rr_merged l on l.file_id = r.id
+			left outer join iattrs i on i.file_id = r.file_id
+			left outer join fattrs f on f.file_id = r.file_id
+			left outer join sattrs s on s.file_id = r.file_id
+			left outer join rr_merged l on l.file_id = r.file_id
 );
 			
 
@@ -107,7 +107,7 @@ create table files
         metadata        jsonb
 );
 
-insert into files(id, namespace, name, create_user, create_timestamp, size, metadata)
+insert into files(id, namespace, name, creator, created_timestamp, size, metadata)
 (
 	select f.file_id, 'dune', name, create_user, to_timestamp(f.create_timestamp), size, m.meta
 		from raw_files f

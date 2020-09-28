@@ -2,7 +2,7 @@
 
 source ./config.sh
 
-$IN_DB_PSQL \
+$IN_DB_PSQL -q \
 	> ./data/app_families.csv \
 	<< _EOF_
 
