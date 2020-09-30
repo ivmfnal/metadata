@@ -10,7 +10,7 @@ create temp view active_files as
 
 
 create temp view string_attrs as
-    select f.file_id, pc.param_category || '.' || pt.param_type as name, pv.param_value as value
+    select f.file_id as file_id, pc.param_category || '.' || pt.param_type as name, pv.param_value as value
                                 from active_files f
                                 inner join data_files_param_values dfv on f.file_id = dfv.file_id
                                 inner join param_values pv on pv.param_value_id = dfv.param_value_id
@@ -23,8 +23,9 @@ create temp view string_attrs as
 
 
 
-copy ( select file_id, regexp_split_to_array(value, ':)
-    from string_attrs
-    where name = 'lbne_data.detector_type'
+copy ( 
+    select file_id, regexp_split_to_array(value, ':')
+        from string_attrs
+        where name = 'lbne_data.detector_type'
     ) to stdout;
 _EOF_
