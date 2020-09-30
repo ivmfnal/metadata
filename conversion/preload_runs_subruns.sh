@@ -2,6 +2,8 @@
 
 source ./config.sh
 
+echo dumping data ...
+
 $IN_DB_PSQL -q > ./data/runs_subruns.csv << _EOF_
 
 create temp view active_files as
@@ -57,6 +59,8 @@ copy (
 
 _EOF_
 
+echo dumped `wc -l ./data/runs_subruns.csv` run and run/subrun records
+echo loading data...
 
 $OUT_DB_PSQL << _EOF_
 
