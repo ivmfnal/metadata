@@ -2,6 +2,7 @@
 
 
 input=$1
+vtype=$2
 
 source ./config.sh
 
@@ -10,10 +11,14 @@ $OUT_DB_PSQL << _EOF_
 create temp table meta_csv (
 	file_id	text,
 	name	text,
-	value	text
+    value	${vtype}
 );
 
+\echo imporing data ...
+
 \copy meta_csv(file_id, name, value) from '${input}';
+
+\echo inserting ...
 
 insert into meta (file_id, meta)
 (
