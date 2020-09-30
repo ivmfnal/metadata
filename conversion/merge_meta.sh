@@ -55,15 +55,6 @@ create temp view ta_attrs as
 ;
 
 create temp view combined_meta as
-    select f.file_id, jsonb_object_agg(m.name, m.value)
-
-create temp table meta
-(
-    file_id text,
-    meta    jsonb
-);
-
-create temp view combined_meta as
 	select r.file_id, 
 			coalesce(i.obj, '{}')::jsonb 
 			|| coalesce(f.obj, '{}')::jsonb 
