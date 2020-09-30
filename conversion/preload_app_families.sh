@@ -52,25 +52,7 @@ copy (
 _EOF_
 
 echo dumped `wc -l ./data/app_families.csv` records
-echo loading data ...
 
-$OUT_DB_PSQL << _EOF_
+prelod_meta ./data/app_families.csv
 
-create temp table app_families (
-	file_id	text,
-	name	text,
-	value	text
-);
 
-\copy app_families(file_id, name, value) from 'data/app_families.csv';
-
--- create index af_file_id on app_families(file_id);
-
-insert into meta (file_id, meta)
-(
-	select f.file_id, jsonb_build_object(a.name, a.value)
-		from app_families a, raw_files f
-        where f.file_id = a.file_id
-);
-
-_EOF_

@@ -13,7 +13,11 @@ create temp table meta_csv (
 	value	text
 );
 
+\echo imporing data ...
+
 \copy meta_csv(file_id, name, value) from '${input}';
+
+\echo inserting ...
 
 insert into meta (file_id, meta)
 (
