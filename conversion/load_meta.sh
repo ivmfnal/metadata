@@ -37,8 +37,6 @@ create temp table runs_subruns (
 	value	bigint[]
 );
 
-truncate runs_subruns;
-
 \copy runs_subruns(file_id, name, value) from 'data/runs_subruns.csv';
 
 create index rr_file_id on runs_subruns(file_id);

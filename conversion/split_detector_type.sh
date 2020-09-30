@@ -9,7 +9,7 @@ create temp view active_files as
                 where retired_date is null;
 
 
-crete temp view string_attrs as
+create temp view string_attrs as
     select f.file_id, pc.param_category || '.' || pt.param_type as name, pv.param_value as value
                                 from active_files f
                                 inner join data_files_param_values dfv on f.file_id = dfv.file_id
