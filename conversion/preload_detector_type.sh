@@ -29,4 +29,4 @@ copy (
     ) to stdout;
 _EOF_
 
-preload_meta ./data/detector_type_lists.csv ta
+preload_meta ./data/detector_type_lists.csv text_a
