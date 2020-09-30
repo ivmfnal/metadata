@@ -7,13 +7,31 @@ function preload_meta() {
     input=$1
 
     wc -l $input
+    
+    case $2 in
+        text)   c=t
+                t=text 
+                ;;
+        int)    c="i"
+                t=bigint
+                ;;
+        float)  c="f"
+                t="double precision"
+                ;;
+        int_a)  c="ia"
+                t="bigint[]"
+                ;;
+        text_a) c="ta"
+                t="text[]"
+                ;;
+    esac
 
     $OUT_DB_PSQL << _EOF_
 
     create temp table meta_csv (
     	file_id	text,
     	name	text,
-    	value	text
+    	value	${t}
     );
 
     \echo imporing metadata from ${input} ...
@@ -21,10 +39,21 @@ function preload_meta() {
     \copy meta_csv(file_id, name, value) from '${input}';
 
     \echo inserting into meta table ...
+    
+    create table if not exists meta (
+        file_id text,
+        name    text,
+        type    text,
+        i       bigint,
+        t       text,
+        f       double precision,
+        ia      bigint[],
+        ta      text[]
+    );
 
-    insert into meta (file_id, meta)
+    insert into meta (file_id, name, type, ${c})
     (
-        select f.file_id, jsonb_build_object(m.name, m.value)
+        select f.file_id, m.name, '${c}', m.value)
             from meta_csv m, raw_files f
             where f.file_id = m.file_id
     );
