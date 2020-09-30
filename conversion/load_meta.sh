@@ -80,6 +80,7 @@ create temp view rr_merged as
 create temp view detector_type_as_json_list as
 	select file_id, jsonb_object_agg('lbne_data.detector_type', value) as obj
 		from detector_type_lists
+		group by file_id
 ;
 
 

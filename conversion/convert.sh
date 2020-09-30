@@ -4,6 +4,7 @@ rm  data/*.csv
 
 echo --- reading users ...
 ./read_users.sh
+
 echo --- loading users ...
 ./load_users.sh
 
