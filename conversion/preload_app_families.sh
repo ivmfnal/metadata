@@ -68,10 +68,9 @@ create temp table app_families (
 
 insert into meta (file_id, meta)
 (
-	select f.file_id, jsonb_object_agg(a.name, a.value)
+	select f.file_id, jsonb_build_object(a.name, a.value)
 		from app_families a, raw_files f
         where f.file_id = a.file_id
-        group by f.file_id
 );
 
 _EOF_
