@@ -6,7 +6,7 @@ $OUT_DB_PSQL << _EOF_
 
 \echo merging metadata ...
 
-drop table if exists files;
+drop table if exists files cascade;
 
 create table files
 (
