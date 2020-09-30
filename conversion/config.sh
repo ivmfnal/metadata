@@ -53,7 +53,7 @@ function preload_meta() {
 
     insert into meta (file_id, name, type, ${c})
     (
-        select f.file_id, m.name, '${c}', m.value)
+        select f.file_id, m.name, '${c}', m.value
             from meta_csv m, raw_files f
             where f.file_id = m.file_id
     );
