@@ -2,6 +2,8 @@
 
 source ./config.sh
 
+echo dumping data ...
+
 $IN_DB_PSQL -q \
 	> ./data/app_families.csv \
 	<< _EOF_
@@ -49,6 +51,8 @@ copy (
 ) to stdout;
 _EOF_
 
+echo dumped `wc -l ./data/app_families.csv` records
+echo loading data ...
 
 $OUT_DB_PSQL << _EOF_
 
@@ -60,7 +64,7 @@ create temp table app_families (
 
 \copy app_families(file_id, name, value) from 'data/app_families.csv';
 
-create index af_file_id on app_families(file_id);
+-- create index af_file_id on app_families(file_id);
 
 insert into meta (file_id, meta)
 (
