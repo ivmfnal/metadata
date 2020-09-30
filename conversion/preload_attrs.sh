@@ -39,13 +39,6 @@ insert into attrs(file_id, name, type, fvalue)
                 from active_files df
 ) ;
 
-insert into attrs(file_id, name, type, svalue)
-(
-	select f.file_id, 'SAM.datastream', 's', ds.datastream_name
-		from data_files f, datastreams ds
-		where f.stream_id = ds.stream_id
-);
-
 insert into attrs(file_id, name, type, ivalue)
 ( 
 	select f.file_id, pc.param_category || '.' || pt.param_type, 'i', param_value
@@ -72,7 +65,7 @@ insert into attrs(file_id, name, type, fvalue)
 
 -- string attrs
 insert into attrs(file_id, name, type, svalue)
-( select f.file_id, pc.param_category || '.' || pt.param_type, 's', pv.param_value
+( select f.file_id, pc.param_category || '.' || pt.param_type, 't', pv.param_value
                 from active_files f
                 inner join data_files_param_values dfv on f.file_id = dfv.file_id
                 inner join param_values pv on pv.param_value_id = dfv.param_value_id
@@ -89,51 +82,11 @@ copy (select file_id, name, type, ivalue, fvalue, svalue
 
 _EOF_
 
+create_meta_table
+
 $OUT_DB_PSQL << _EOF_
 
-create temp table attrs (
-	file_id text,
-	name	text,
-        type	text,
-	ivalue	bigint,
-	fvalue	double precision,
-	svalue	text
-);
-
-\copy attrs(file_id, name, type, ivalue, fvalue, svalue) from 'data/attrs.csv'
-
-create temp view iattrs as
-	select file_id, jsonb_object_agg(name, ivalue) as obj
-		from attrs
-		where type = 'i' and ivalue is not null
-		group by file_id
-;
-
-create temp view fattrs as
-	select file_id, jsonb_object_agg(name, fvalue) as obj
-		from attrs
-		where type = 'f' and fvalue is not null
-		group by file_id
-;
-
-create temp view sattrs as
-	select file_id, jsonb_object_agg(name, svalue) as obj
-		from attrs
-		where type = 's' and svalue is not null
-		group by file_id
-;
-
-insert into meta (file_id, meta)
-(
-	select r.file_id, 
-			coalesce(i.obj, '{}')::jsonb 
-			|| coalesce(f.obj, '{}')::jsonb 
-			|| coalesce(s.obj, '{}')::jsonb 
-		from raw_files r
-			left outer join iattrs i on i.file_id = r.file_id
-			left outer join fattrs f on f.file_id = r.file_id
-			left outer join sattrs s on s.file_id = r.file_id
-);
+\copy meta(file_id, name, type, i, f, t) from 'data/attrs.csv'
 
 _EOF_
 

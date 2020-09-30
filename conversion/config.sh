@@ -1,6 +1,34 @@
 IN_DB_PSQL="psql -h sampgsdb03.fnal.gov -p 5435 -U samread -d sam_dune_prd"
 OUT_DB_PSQL="psql -h ifdb02.fnal.gov -d metadata"
 
+function create_meta_table () {
+    $OUT_DB_PSQL << _EOF_
+
+    create temp table meta_csv (
+    	file_id	text,
+    	name	text,
+    	value	${t}
+    );
+
+    \echo imporing metadata from ${input} ...
+
+    \copy meta_csv(file_id, name, value) from '${input}';
+
+    \echo inserting into meta table ...
+    
+    create table if not exists meta (
+        file_id text,
+        name    text,
+        type    text,
+        i       bigint,
+        t       text,
+        f       double precision,
+        ia      bigint[],
+        ta      text[]
+    );
+_EOF_
+}
+
 
 function preload_meta() {
 
@@ -26,6 +54,8 @@ function preload_meta() {
                 ;;
     esac
 
+    create_meta_table
+
     $OUT_DB_PSQL << _EOF_
 
     create temp table meta_csv (
@@ -40,17 +70,6 @@ function preload_meta() {
 
     \echo inserting into meta table ...
     
-    create table if not exists meta (
-        file_id text,
-        name    text,
-        type    text,
-        i       bigint,
-        t       text,
-        f       double precision,
-        ia      bigint[],
-        ta      text[]
-    );
-
     insert into meta (file_id, name, type, ${c})
     (
         select f.file_id, m.name, '${c}', m.value
