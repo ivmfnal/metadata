@@ -4,14 +4,16 @@ source ./config.sh
 
 $OUT_DB_PSQL << _EOF_
 
-drop table queries;
-drop table files_datasets;
-drop table datasets;
-drop table authenticators;
-drop table parameter_definitions;
-drop table parameter_categories;
-drop table namespaces;
-drop table roles;
+drop table if exists 
+    queries
+    ,files_datasets
+    ,datasets
+    ,authenticators
+    ,parameter_definitions
+    ,parameter_categories
+    ,namespaces
+    ,roles
+;
 
 create table roles
 (

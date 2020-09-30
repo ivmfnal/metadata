@@ -7,8 +7,8 @@ cat data/app_families.csv  data/data_tiers.csv  data/file_formats.csv  data/file
 
 $OUT_DB_PSQL << _EOF_
 
-drop table attrs cascade;
-drop table meta cascade;
+drop table if exists attrs cascade;
+drop table if exists meta cascade;
 
 create temp table attrs (
 	file_id text,
@@ -94,7 +94,7 @@ insert into meta (file_id, meta)
 
 \echo merging...
 
-drop table files;
+drop table if exists files;
 
 create table files
 (

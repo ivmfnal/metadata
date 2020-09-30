@@ -5,7 +5,7 @@ source ./config.sh
 
 $OUT_DB_PSQL << _EOF_
 
-drop table parent_child;
+drop table if exists parent_child;
 
 create table parent_child
 (

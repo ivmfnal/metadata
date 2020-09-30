@@ -6,8 +6,7 @@ source ./config.sh
 $OUT_DB_PSQL << _EOF_
 
 
-drop table raw_files cascade;
-drop table files cascade;
+drop table if exists raw_files cascade;
 
 create table raw_files
 (
