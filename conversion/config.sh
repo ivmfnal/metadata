@@ -17,6 +17,12 @@ function create_meta_table () {
 _EOF_
 }
 
+function drop_meta_table () {
+    $OUT_DB_PSQL << _EOF_
+    drop table meta;
+_EOF_
+}
+
 
 function preload_meta() {
 

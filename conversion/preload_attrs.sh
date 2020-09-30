@@ -82,6 +82,7 @@ copy (select file_id, name, type, ivalue, fvalue, svalue
 
 _EOF_
 
+drop_meta_table
 create_meta_table
 
 $OUT_DB_PSQL << _EOF_
