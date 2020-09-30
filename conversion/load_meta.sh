@@ -10,22 +10,6 @@ $OUT_DB_PSQL << _EOF_
 drop table if exists attrs cascade;
 drop table if exists meta cascade;
 
-create temp table attrs (
-	file_id text,
-	name	text,
-        type	text,
-	ivalue	bigint,
-	fvalue	double precision,
-	svalue	text
-);
-
-truncate attrs;
-
-\echo importing attrs
-
-
-\copy attrs(file_id, name, type, ivalue, fvalue, svalue) from 'data/meta_simple.csv'
-
 -- \echo creating attrs index
 -- create index attrs_file_id on attrs(file_id);
 
@@ -38,6 +22,14 @@ create temp table detector_type_lists (
 
 \copy detector_type_lists(file_id, value) from 'data/detector_type_lists.csv';
 
+create temp view detector_type_as_json_list as
+	select file_id, jsonb_object_agg('lbne_data.detector_type', value) as obj
+		from detector_type_lists
+		group by file_id
+;
+
+
+
 \echo importing runs/subruns
 
 create temp table runs_subruns (
@@ -49,6 +41,21 @@ create temp table runs_subruns (
 \copy runs_subruns(file_id, name, value) from 'data/runs_subruns.csv';
 
 create index rr_file_id on runs_subruns(file_id);
+
+\echo importing attrs
+
+create temp table attrs (
+	file_id text,
+	name	text,
+        type	text,
+	ivalue	bigint,
+	fvalue	double precision,
+	svalue	text
+);
+
+truncate attrs;
+
+\copy attrs(file_id, name, type, ivalue, fvalue, svalue) from 'data/meta_simple.csv'
 
 create temp view iattrs as
 	select file_id, jsonb_object_agg(name, ivalue) as obj
@@ -76,14 +83,6 @@ create temp view rr_merged as
 		from runs_subruns
 		group by file_id
 ;
-
-create temp view detector_type_as_json_list as
-	select file_id, jsonb_object_agg('lbne_data.detector_type', value) as obj
-		from detector_type_lists
-		group by file_id
-;
-
-
 
 create temp table meta (
 	file_id text,
