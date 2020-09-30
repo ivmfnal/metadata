@@ -19,4 +19,4 @@ copy (
 
 _EOF_
 
-prelod_meta ./data/app_families.csv text
+preload_meta ./data/app_families.csv text

@@ -55,6 +55,6 @@ copy (
 
 _EOF_
 
-prelod_meta ./data/app_families.csv 'bigint[]'
+preload_meta ./data/app_families.csv 'bigint[]'
 
 
