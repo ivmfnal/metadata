@@ -10,10 +10,10 @@ create temp view active_files as
         select * from data_files
                 where retired_date is null;
 
-create temp table attrs (
+create table attrs (
 	file_id bigint,
 	name	text,
-        type	text,
+    type	text,
 	ivalue	bigint,
 	fvalue	double precision,
 	svalue	text
