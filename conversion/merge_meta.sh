@@ -43,7 +43,7 @@ create temp view t_attrs as
 create temp view ia_attrs as
 	select file_id, jsonb_object_agg(name, ia) as obj
 		from meta
-		where type = 'ia' and ta is not null
+		where type = 'ia' and ia is not null
 		group by file_id
 ;
 
