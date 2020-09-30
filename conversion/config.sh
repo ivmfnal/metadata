@@ -4,18 +4,6 @@ OUT_DB_PSQL="psql -h ifdb02.fnal.gov -d metadata"
 function create_meta_table () {
     $OUT_DB_PSQL << _EOF_
 
-    create temp table meta_csv (
-    	file_id	text,
-    	name	text,
-    	value	${t}
-    );
-
-    \echo imporing metadata from ${input} ...
-
-    \copy meta_csv(file_id, name, value) from '${input}';
-
-    \echo inserting into meta table ...
-    
     create table if not exists meta (
         file_id text,
         name    text,
