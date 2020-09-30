@@ -68,7 +68,7 @@ create temp view combined_meta as
 			left outer join t_attrs t on t.file_id = r.file_id
 			left outer join ta_attrs ta on ta.file_id = r.file_id
 			left outer join ia_attrs ia on ia.file_id = r.file_id
-);
+;
 
 insert into files(id, namespace, name, creator, created_timestamp, size, metadata)
 (
