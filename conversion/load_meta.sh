@@ -53,8 +53,6 @@ create temp table attrs (
 	svalue	text
 );
 
-truncate attrs;
-
 \copy attrs(file_id, name, type, ivalue, fvalue, svalue) from 'data/meta_simple.csv'
 
 create temp view iattrs as
