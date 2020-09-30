@@ -64,7 +64,7 @@ create temp table app_families (
 
 \copy app_families(file_id, name, value) from 'data/app_families.csv';
 
-create index af_file_id on app_families(file_id);
+-- create index af_file_id on app_families(file_id);
 
 insert into meta (file_id, meta)
 (
