@@ -22,4 +22,4 @@ copy (
 
 _EOF_
 
-preload_meta ./data/run_types.csv 'text'
+preload_meta ./data/run_types.csv text
