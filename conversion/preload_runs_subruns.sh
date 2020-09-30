@@ -38,7 +38,6 @@ insert into temp_run_subrun_arrays(file_id, name, value)
 		from temp_runs 
 		group by file_id 
 	)
-
 ;
 
 insert into temp_run_subrun_arrays(file_id, name, value)
@@ -48,43 +47,14 @@ insert into temp_run_subrun_arrays(file_id, name, value)
 	)
 ;
 
-
-
 copy (
 	select file_id, name, value
 	from temp_run_subrun_arrays
 	order by file_id
 ) to stdout;
 
-
 _EOF_
 
-echo dumped `wc -l ./data/runs_subruns.csv` run and run/subrun records
-echo loading data...
+prelod_meta ./data/app_families.csv 'bigint[]'
 
-$OUT_DB_PSQL << _EOF_
 
-create temp table runs_subruns (
-	file_id	text,
-	name	text,
-	value	bigint[]
-);
-
-\copy runs_subruns(file_id, name, value) from 'data/runs_subruns.csv';
-
-create index rr_file_id on runs_subruns(file_id);
-
-create temp view rr_merged as
-	select file_id, jsonb_object_agg(name, value) as obj
-		from runs_subruns
-		group by file_id
-;
-
-insert into meta (file_id, meta)
-(
-	select f.file_id, m.obj
-		from rr_merged m, raw_files f
-        where f.file_id = m.file_id
-);
-
-_EOF_

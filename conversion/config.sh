@@ -6,7 +6,7 @@ function preload_meta() {
 
     input=$1
 
-    source ./config.sh
+    wc -l $input
 
     $OUT_DB_PSQL << _EOF_
 
@@ -16,11 +16,11 @@ function preload_meta() {
     	value	text
     );
 
-    \echo imporing data ...
+    \echo imporing metadata from ${input} ...
 
     \copy meta_csv(file_id, name, value) from '${input}';
 
-    \echo inserting ...
+    \echo inserting into meta table ...
 
     insert into meta (file_id, meta)
     (

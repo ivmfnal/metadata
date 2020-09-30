@@ -51,8 +51,7 @@ copy (
 ) to stdout;
 _EOF_
 
-echo dumped `wc -l ./data/app_families.csv` records
 
-prelod_meta ./data/app_families.csv
+prelod_meta ./data/app_families.csv text
 
 

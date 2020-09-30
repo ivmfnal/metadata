@@ -9,8 +9,7 @@ create temp view active_files as
                 where retired_date is null;
 
 copy (
-
-	select f.file_id, 'SAM.data_tier', 's', null, null, dt.data_tier 
+	select f.file_id, 'SAM.data_tier', dt.data_tier 
 		from active_files f, data_tiers dt 
 		where f.data_tier_id = dt.data_tier_id
 		order by f.file_id
@@ -19,3 +18,5 @@ copy (
 
 
 _EOF_
+
+prelod_meta ./data/app_families.csv text
