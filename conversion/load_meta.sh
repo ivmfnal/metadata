@@ -29,6 +29,15 @@ truncate attrs;
 -- \echo creating attrs index
 -- create index attrs_file_id on attrs(file_id);
 
+\echo importing lbne.detector_type as lists
+
+create temp table detector_type_lists (
+    file_id text,
+    value text[]
+);
+
+\copy detector_type_lists(file_id, value) from 'data/detector_type_lists.csv';
+
 \echo importing runs/subruns
 
 create temp table runs_subruns (
@@ -68,6 +77,13 @@ create temp view rr_merged as
 		group by file_id
 ;
 
+create temp view detector_type_as_json_list as
+	select file_id, jsonb_object_agg('lbne_data.detector_type', value) as obj
+		from detector_type_lists
+;
+
+
+
 create temp table meta (
 	file_id text,
 	meta	jsonb
@@ -82,11 +98,13 @@ insert into meta (file_id, meta)
 			|| coalesce(f.obj, '{}')::jsonb 
 			|| coalesce(s.obj, '{}')::jsonb 
 			|| coalesce(l.obj, '{}')::jsonb
+            || coalesce(d.obj, '{}')::jsonb
 		from raw_files r
 			left outer join iattrs i on i.file_id = r.file_id
 			left outer join fattrs f on f.file_id = r.file_id
 			left outer join sattrs s on s.file_id = r.file_id
 			left outer join rr_merged l on l.file_id = r.file_id
+			left outer join detector_type_as_json_list d on d.file_id = r.file_id
 );
 			
 
