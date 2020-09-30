@@ -2,6 +2,8 @@
 
 source ./config.sh
 
+echo dumping data ...
+
 $IN_DB_PSQL -q \
 	> ./data/app_families.csv \
 	<< _EOF_
@@ -49,6 +51,8 @@ copy (
 ) to stdout;
 _EOF_
 
+echo dumped `wc -l ./data/app_families.csv` records
+echo loading data ...
 
 $OUT_DB_PSQL << _EOF_
 
