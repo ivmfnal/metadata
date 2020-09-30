@@ -31,8 +31,6 @@ _EOF_
 
 $OUT_DB_PSQL << _EOF_
 
-drop table if exists raw_files cascade;
-
 create temp table detector_type_lists (
     file_id text,
     value text[]
