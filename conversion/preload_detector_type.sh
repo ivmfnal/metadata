@@ -29,19 +29,4 @@ copy (
     ) to stdout;
 _EOF_
 
-$OUT_DB_PSQL << _EOF_
-
-create temp table detector_type_lists (
-    file_id text,
-    value text[]
-);
-
-\copy detector_type_lists(file_id, value) from 'data/detector_type_lists.csv';
-
-insert into meta (file_id, meta)
-(
-    select file_id, jsonb_build_object('lbne_data.detector_type.list', value)
-        from detector_type_lists
-);
-
-_EOF_
+preload_meta ./data/detector_type_lists.csv ta
