@@ -3,52 +3,55 @@
 rm  data/*.csv
 
 echo --- loading users ...
-./load_users.sh
+time ./load_users.sh
 
 echo --- loading raw files ...
-./load_files.sh
+time ./load_files.sh
 
 echo --- preloading attributes ...
-./preload_attrs.sh
+time ./preload_attrs.sh
 
 echo --- preload runs/subruns ...
-./preload_runs_subruns.sh
+time ./preload_runs_subruns.sh
 
-echo --- splitting lbne.detector_type values into lists ...
-./preload_detector_type.sh
+echo --- splitting lbne_data.detector_type values into lists ...
+time ./preload_detector_type.sh
+
+echo --- splitting DUNE_data.detector_config values into lists ...
+time ./preload_detector_config.sh
 
 echo --- preloading file types ...
-./preload_file_types.sh
+time ./preload_file_types.sh
 
 echo --- preloading file formats ...
-./preload_formats.sh
+time ./preload_formats.sh
 
 echo --- preloading run types ...
-./preload_run_types.sh
+time ./preload_run_types.sh
 
 echo --- preloading data tiers ...
-./preload_data_tiers.sh
+time ./preload_data_tiers.sh
 
 echo --- preloading app families ...
-./preload_app_families.sh
+time ./preload_app_families.sh
 
 echo --- preloading data streams ...
-./preload_data_streams.sh
+time ./preload_data_streams.sh
 
 echo --- loading lineages ...
-./load_lineages.sh
+time ./load_lineages.sh
 
 echo --- merging data into the files table ...
-./merge_meta.sh
+time ./merge_meta.sh
 
 echo --- building indexes ...
-./build_indexes.sh
+time ./build_indexes.sh
 
 echo --- creating other tables ...
-./create_other_tables.sh
+time ./create_other_tables.sh
 
 echo --- building foreign keys ...
-./build_foreign_keys.sh
+time ./build_foreign_keys.sh
 
 
 
