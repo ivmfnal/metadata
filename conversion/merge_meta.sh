@@ -55,13 +55,13 @@ create temp view ta_attrs as
 ;
 
 create temp view combined_meta as
-	select r.file_id, 
+	select r.file_id, name, create_user as creator, to_timestamp(r.create_timestamp) as created_timestamp, size,
 			coalesce(i.obj, '{}')::jsonb 
 			|| coalesce(f.obj, '{}')::jsonb 
 			|| coalesce(t.obj, '{}')::jsonb 
 			|| coalesce(ia.obj, '{}')::jsonb 
 			|| coalesce(ta.obj, '{}')::jsonb 
-            as meta
+            as metadata
 		from raw_files r
 			left outer join i_attrs i on i.file_id = r.file_id
 			left outer join f_attrs f on f.file_id = r.file_id
@@ -70,11 +70,12 @@ create temp view combined_meta as
 			left outer join ia_attrs ia on ia.file_id = r.file_id
 ;
 
+create index meta_file_id_inx on meta(file_id);
+
 insert into files(id, namespace, name, creator, created_timestamp, size, metadata)
 (
-	select f.file_id, 'dune', name, create_user, to_timestamp(f.create_timestamp), size, m.meta
-		from raw_files f
-			left outer join combined_meta m on(f.file_id = m.file_id)
+	select file_id, 'dune', name, creator, created_timestamp, size, metadata  
+		from combined_meta
 );
 
 
