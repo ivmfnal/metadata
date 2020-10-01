@@ -1,5 +1,7 @@
 #!/bin/bash
 
+source ./config.sh
+
 rm  data/*.csv
 
 echo
@@ -10,10 +12,20 @@ echo
 echo --- loading raw files ...
 time ./load_files.sh
 
+drop_meta_table
+
+(
 echo
 echo --- preloading attributes ...
 time ./preload_attrs.sh
 
+echo
+echo --- preloading data streams ...
+time ./preload_data_streams.sh
+)&
+
+
+(
 echo
 echo --- preload runs/subruns ...
 time ./preload_runs_subruns.sh
@@ -25,15 +37,23 @@ time ./preload_detector_type.sh
 echo
 echo --- splitting DUNE_data.detector_config values into lists ...
 time ./preload_detector_config.sh
+) &
 
+(
 echo
-echo --- preloading file types ...
-time ./preload_file_types.sh
+echo --- preloading content sratus ...
+time ./preload_content_status.sh
 
 echo
 echo --- preloading file formats ...
 time ./preload_formats.sh
 
+echo
+echo --- preloading file types ...
+time ./preload_file_types.sh
+) &
+
+(
 echo
 echo --- preloading run types ...
 time ./preload_run_types.sh
@@ -45,18 +65,19 @@ time ./preload_data_tiers.sh
 echo
 echo --- preloading app families ...
 time ./preload_app_families.sh
+)&
 
-echo
-echo --- preloading data streams ...
-time ./preload_data_streams.sh
+echo waiting for parallel paths to join ...
 
-echo
-echo --- loading lineages ...
-time ./load_lineages.sh
+wait
 
 echo
 echo --- merging metadata into the files table ...
 time ./merge_meta.sh
+
+echo
+echo --- loading lineages ...
+time ./load_lineages.sh
 
 echo
 echo --- building indexes ...

@@ -82,9 +82,6 @@ copy (select file_id, name, type, ivalue, fvalue, svalue
 
 _EOF_
 
-drop_meta_table
-create_meta_table
-
 $OUT_DB_PSQL << _EOF_
 
 \copy meta(file_id, name, type, i, f, t) from 'data/attrs.csv'
