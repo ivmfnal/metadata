@@ -131,6 +131,18 @@ create table parameter_definitions
     primary key(category, name)
 );
 
+create table authenticators
+(
+    username    text    references users(username) on delete cascade,
+    type        text
+        constraint authenticator_types check ( 
+            type in ('x509','password','ssh')
+            ),
+    secrets      text[],
+    primary key(username, type)
+);
+
+
     
 
 

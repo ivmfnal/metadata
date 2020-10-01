@@ -23,7 +23,7 @@ create temp view string_attrs as
 ;
 
 copy ( 
-    select file_id, 'lbne_data.detector_type', regexp_split_to_array(value, ':')
+    select file_id, 'lbne_data.detector_type.list', regexp_split_to_array(value, ':')
         from string_attrs
         where name = 'lbne_data.detector_type'
     ) to stdout;

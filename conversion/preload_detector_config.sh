@@ -23,7 +23,7 @@ create temp view string_attrs as
 ;
 
 copy ( 
-    select file_id, 'DUNE_data.detector_config', regexp_split_to_array(value, ':')
+    select file_id, 'DUNE_data.detector_config.list', regexp_split_to_array(value, ':')
         from string_attrs
         where name = 'DUNE_data.detector_config'
     ) to stdout;
