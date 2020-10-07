@@ -10,7 +10,7 @@ create temp view active_files as
 
 copy (
     select f.file_id, 'SAM.datastream', ds.datastream_name
-        		from data_files f, datastreams ds
+        		from active_files f, datastreams ds
         		where f.stream_id = ds.stream_id
         
 ) to stdout;

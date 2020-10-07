@@ -9,7 +9,6 @@ copy (	select df.file_id, df.file_name, extract(epoch from df.create_date), p.us
 		from data_files df
 			left outer join persons p on p.person_id = df.create_user_id
 		where df.retired_date is null 
-                order by df.file_id
 ) to stdout
 
 _EOF_

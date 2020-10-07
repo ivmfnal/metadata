@@ -10,7 +10,7 @@ create temp view active_files as
 
 copy (
     select f.file_id, 'SAM.file_content_status', fcs.file_content_status
-        		from data_files f, file_content_statuses fcs
+        		from active_files f, file_content_statuses fcs
         		where f.file_content_status_id = fcs.file_content_status_id
         
 ) to stdout;
