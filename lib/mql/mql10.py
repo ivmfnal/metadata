@@ -442,6 +442,10 @@ class _Converter(Transformer):
         (n,) = args
         return Node("array_any", name=n.value)
         
+    def array_length(self, args):
+        (n,) = args
+        return Node("array_length", name=n.value)
+        
     def array_subscript(self, args):
         name, inx = args
         return Node("array_subscript", name=name.value, index=inx)
@@ -566,19 +570,9 @@ class _LimitApplier(Descender):
     def limit(self, node, limit):
         #print("_LimitPusher.limit: node:", node)
         assert len(node.C) == 1
-        limit = node.M if limit is None else min(limit, node.M)
+        node_limit = node["limit"]
+        limit = node_limit if limit is None else min(limit,node_limit)
         return self.walk(node.C[0], limit)
-        
-    def ______file_query(self, node, limit):
-        node_limit = node.M.get("limit")
-        #print("_LimitApplier.file_query(): node_limit:", node_limit)
-        if node_limit is not None:
-            if limit is not None:
-                limit = min(limit, node_limit)
-            else:
-                limit = node_limit
-        node.C[0] = self.walk(node.C[0], limit)
-        return node
         
     def union(self, node, limit):
         if limit is not None:
@@ -586,11 +580,12 @@ class _LimitApplier(Descender):
                 [Node("union", 
                     [self.walk(c, limit) for c in node.C]
                     )
-                ], meta=limit)
+                ], limit=limit)
         else:
             return node
             
     def basic_file_query(self, node, limit):
+        #print("LimitApplier: applying limit", limit)
         node["query"].addLimit(limit)
         return node
         
@@ -599,7 +594,7 @@ class _LimitApplier(Descender):
         if limit is not None:
             new_node = Node(node.T, node.C, node.M)
             self.visit_children(new_node, None)
-            return Node("limit", [new_node], meta=limit)
+            return Node("limit", [new_node], limit=limit)
         else:
             return self.visit_children(node, None)
             

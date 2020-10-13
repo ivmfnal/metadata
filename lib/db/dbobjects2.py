@@ -609,65 +609,75 @@ class MetaExpressionDNF(object):
 
             op = exp.T
             args = exp.C
-            arg = args[0]
 
-            if arg.T == "array_subscript":
-                # a[i] = x
-                aname, inx = arg["name"], arg["index"]
-                inx = json_literal(inx)
-                subscript = f"[{inx}]"
-            elif arg.T == "array_any":
-                aname = arg["name"]
-                subscript = "[*]"
-            else:
-                aname = arg["name"]
-                subscript = ""
-            
             if op == "present":
-                aname = arg["name"]
+                aname = exp["name"]
                 parts.append(f"{table_name}.metadata ? '{aname}'")
 
             elif op == "not_present":
-                aname = arg["name"]
+                aname = exp["name"]
                 parts.append(f"not ({table_name}.metadata ? '{aname}')")
+            
+            else:
+                arg = args[0]
                 
-            elif op == "in_range":
-                assert len(args) == 1
-                typ, low, high = exp["type"], exp["low"], exp["high"]
-                low = json_literal(low)
-                high = json_literal(high)
-                if arg.T == "array_subscript" or arg.T == "scalar":
-                    # a[i] in x:y or a in x:y
-                    parts.append(f"{table_name}.metadata @@ '$.\"{aname}\"{subscript} >={low}'")
-                    parts.append(f"{table_name}.metadata @@ '$.\"{aname}\"{subscript} <={high}'")
+                if arg.T == "array_subscript":
+                    # a[i] = x
+                    aname, inx = arg["name"], arg["index"]
+                    inx = json_literal(inx)
+                    subscript = f"[{inx}]"
                 elif arg.T == "array_any":
-                    # a[*] in x:y
-                    aname = arg.M
-                    parts.append(f"{table_name}.metadata @? '$.\"{aname}\"[*] ? (@ >= {low} && @ <= {high})'")
+                    aname = arg["name"]
+                    subscript = "[*]"
+                else:
+                    aname = arg["name"]
+                    subscript = ""
+            
 
-            elif op == "in_set":
-                assert len(args) == 1
-                values = [json_literal(x) for x in exp["set"]]
-                or_parts = [f"({table_name}.metadata @@ '$.\"{aname}\"{subscript} == {v}')" for v in values]
-                parts.append("(%s)" % (" or ".join(or_parts),))
+                if op == "in_range":
+                    assert len(args) == 1
+                    typ, low, high = exp["type"], exp["low"], exp["high"]
+                    low = json_literal(low)
+                    high = json_literal(high)
+                    if arg.T == "array_subscript" or arg.T == "scalar":
+                        # a[i] in x:y or a in x:y
+                        parts.append(f"{table_name}.metadata @@ '$.\"{aname}\"{subscript} >={low}'")
+                        parts.append(f"{table_name}.metadata @@ '$.\"{aname}\"{subscript} <={high}'")
+                    elif arg.T == "array_any":
+                        # a[*] in x:y
+                        parts.append(f"{table_name}.metadata @? '$.\"{aname}\"[*] ? (@ >= {low} && @ <= {high})'")
+                    elif arg.T == "array_length":
+                        parts.append(f"jsonb_array_length({table_name}.metadata -> '{aname}') between {low} and {high}")
+                        
+
+                elif op == "in_set":
+                    if arg.T == "array_length":
+                        values = exp["set"]
+                        or_parts = [f"(jsonb_array_length({table_name}.metadata -> '{aname}') = {v})" for v in values]
+                    else:
+                        values = [json_literal(x) for x in exp["set"]]
+                        or_parts = [f"({table_name}.metadata @@ '$.\"{aname}\"{subscript} == {v}')" for v in values]
+                    parts.append("(%s)" % (" or ".join(or_parts),))
                     
-            elif op == "cmp_op":
-                cmp_op = exp["op"]
-                value = args[1]
-                value_type, value = value.T, value["value"]
-                value = json_literal(value)
-
-                if cmp_op in (">", ">=", "<", "<=", "=", "==", "!="):
-                    if cmp_op == '=': cmp_op = "=="
-                    parts.append(f"{table_name}.metadata @@ '$.\"{aname}\"{subscript} {cmp_op} {value}'")
-                elif cmp_op in ("~", "~*", "!~", "!~*"):
-                    negated = cmp_op.startswith('!')
-                    if negated: cmp_op = cmp_op[1:]
-                    flags = ' flag "i"' if cmp_op.endswith("*") else ''
-                    part = f"{table_name}.metadata @@ '$.\"{aname}\"{subscript} like_regex {value}{flags}'"
-                    if negated:
-                        part = "not "+part
-                    parts.append(part)
+                elif op == "cmp_op":
+                    cmp_op = exp["op"]
+                    value = args[1]
+                    value_type, value = value.T, value["value"]
+                    if arg.T == "array_length":
+                        parts.append(f"jsonb_array_length({table_name}.metadata -> '{aname}') {cmp_op} {value}")
+                    else:
+                        value = json_literal(value)
+                        if cmp_op in (">", ">=", "<", "<=", "=", "==", "!="):
+                            if cmp_op == '=': cmp_op = "=="
+                            parts.append(f"{table_name}.metadata @@ '$.\"{aname}\"{subscript} {cmp_op} {value}'")
+                        elif cmp_op in ("~", "~*", "!~", "!~*"):
+                            negated = cmp_op.startswith('!')
+                            if negated: cmp_op = cmp_op[1:]
+                            flags = ' flag "i"' if cmp_op.endswith("*") else ''
+                            part = f"{table_name}.metadata @@ '$.\"{aname}\"{subscript} like_regex {value}{flags}'"
+                            if negated:
+                                part = "not "+part
+                            parts.append(part)
 
         if contains_items:
             parts.append("%s.metadata @> '{%s}'" % (table_name, ",".join(contains_items )))

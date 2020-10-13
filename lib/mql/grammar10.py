@@ -64,6 +64,7 @@ meta_and:   term_meta ( "and" term_meta )*
 scalar:  ANAME
         | ANAME "[" "*" "]"                         -> array_any
         | ANAME "[" SIGNED_INT "]"                  -> array_subscript
+        | "len" "(" ANAME ")"                       -> array_length
 
     
 constant_list:    constant? ("," constant)*                    
