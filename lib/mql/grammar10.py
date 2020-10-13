@@ -10,10 +10,10 @@ top_dataset_query       :    dataset_query
 ?file_query: limited_file_query_expression                                  
     | file_query "-" limited_file_query_expression                          -> minus
 
-?limited_file_query_expression: filtered_file_query_expression "limit" SIGNED_INT
-    | filtered_file_query_expression                   
+?limited_file_query_expression: meta_filter "limit" SIGNED_INT
+    | meta_filter                   
 
-?filtered_file_query_expression: file_query_exression "where" meta_exp           
+?meta_filter: file_query_exression "where" meta_exp     
     |   file_query_exression                             
 
 ?file_query_exression:  term_file_query                   
@@ -54,14 +54,17 @@ meta_or:    meta_and ( "or" meta_and )*
 
 meta_and:   term_meta ( "and" term_meta )*
 
-term_meta:  ANAME CMPOP constant                    -> cmp_op
+?term_meta:  scalar CMPOP constant                   -> cmp_op
+    | scalar "in" constant ":" constant             -> in_range
+    | scalar "in" "(" constant_list ")"             -> in_set
     | ANAME "present"?                              -> present_op                   //# new
-    | ANAME "[" index "]" CMPOP constant            -> subscript_cmp_op             //# new
-    | constant "in" ANAME                           -> in_op
-    | ANAME "contains" constant                     -> contains_op                  //# new
-    | "(" meta_exp ")"                              -> s_
+    | "(" meta_exp ")"                              
     | "!" term_meta                                 -> meta_not
-    | "eval" FNAME "(" constant_list ")"            -> eval                         //# new
+
+scalar:  ANAME
+        | ANAME "[" "*" "]"                         -> array_any
+        | ANAME "[" SIGNED_INT "]"                  -> array_subscript
+
     
 constant_list:    constant? ("," constant)*                    
 
@@ -79,7 +82,7 @@ FNAME: LETTER ("_"|"-"|"."|LETTER|DIGIT)*
 
 WORD: LETTER ("_"|LETTER|DIGIT)*
 
-CMPOP:  "<" "="? | "!"? "=" "="? | "!"? "~~" "*"? | ">" "="? 
+CMPOP:  "<" "="? | "!"? "=" "="? | "!"? "~" "*"? | ">" "="? 
 
 BOOL: "true"i | "false"i
 

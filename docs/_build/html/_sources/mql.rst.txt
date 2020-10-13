@@ -42,12 +42,19 @@ it is interpreted as an SQL wildcard.
 Note that you have to use database wildcard notation where '%' matches any string, including empty string, and '_' matches any single
 character.
 
-In particular, if you want to select all files from all known datasets, you can do this:
+If you want to select all files from all known datasets, you can do this:
 
 .. code-block:: sql
 
         files from "%"
                 where run=1234
+
+The "from <dataset>" part is optional. If you want to select files from all datasets and even files not included
+into any dataset, you can omit the "from ..." portion:
+
+.. code-block:: sql
+
+        files where data_type="mc"
 
 
 
@@ -119,11 +126,21 @@ Although is it not necessary in this example, you can use parethesis and white s
 
         (files from MC:Beam where e1 > 10) 
         - (files from MC:Exotics where type = "abcd")
+        
+        files - files where data_type="mc"
 
 Also, you can use square and curly brackets as an alternative to using explicit words "union" and "join" respectively.
 The following two queries are equivalent:
 
 .. code-block:: sql
+
+        union (
+                files from s:A,
+                join(
+                        files from s:B,
+                        files from s:C
+                )
+        )
 
         [
                 files from s:A,
@@ -133,13 +150,17 @@ The following two queries are equivalent:
                 }
         ]
 
-        union (
-                files from s:A,
-                join(
-                        files from s:B,
-                        files from s:C
-                )
-        )
+Lists
+-----
+MetaCat and MQL support lists and operations involving lists. For example, run numbers can be stored in
+the metadata as lists of integers and then selected like this:
+
+.. code-block:: sql
+
+        files from data:production where 1379 in runs
+        
+This will select all files where 1379 is included in the list of runs for the file.
+
         
 External Filters
 ----------------
@@ -284,8 +305,9 @@ Dataset and file metadata filtering can be mixed together:
 
 .. code-block:: sql
 
-    files from mc:"%" having type="nc" and detector="near"
-        where beam="on" and version>3
+    files from mc:"%" 
+        having type="nc" and detector="near"            # dataset selection
+        where beam="on" and version>3                   # files selection
         
     
 

@@ -2,6 +2,12 @@ import uuid, json, hashlib, re
 from metacat.util import to_bytes, to_str
 from psycopg2 import IntegrityError
 
+Debug = True
+
+def debug(*parts):
+    if Debug:
+        print(*parts)
+
 class AlreadyExistsError(Exception):
     pass
 
@@ -188,7 +194,6 @@ class DBFileSet(object):
     @staticmethod
     def from_basic_query(db, basic_file_query, with_metadata, limit):
         
-        dnf = basic_file_query.wheres_dnf()
         if limit is None:
             limit = basic_file_query.Limit
         elif basic_file_query.Limit is not None:
@@ -204,17 +209,17 @@ class DBFileSet(object):
         if dataset_selector is None:
             return DBFileSet.all_files(db, dnf, with_metadata, limit)
         elif len(datasets) == 1:
-            return datasets[0].list_files(with_metadata = with_metadata, condition=dnf, limit=limit)
+            return datasets[0].list_files(with_metadata = with_metadata, condition=basic_file_query.Wheres, limit=limit)
         else:
             return DBFileSet.files_from_multiple_datasets(db, datasets, dnf, with_metadata, limit)
             
     @staticmethod
-    def files_from_multiple_datasets(db, datasets, dnf, with_metadata, limit):
+    def files_from_multiple_datasets(db, datasets, meta_exp, with_metadata, limit):
         datasets = list(datasets)
         dataset_names = set(ds.Name for ds in datasets)
         dataset_namespaces = set(ds.Namespace for ds in datasets)
         specs = ["%s:%s" % (ds.Namespace, ds.Name) for ds in datasets]
-        meta_where_clause = MetaExpressionDNF(dnf).sql("files")
+        meta_where_clause = MetaExpressionDNF(meta_exp).sql("files")
         limit = "" if limit is None else f"limit {limit}"   
         meta = "files.metadata" if with_metadata else "null"     
         sql = f"""select files.id, files.namespace, files.name, {meta}
@@ -234,9 +239,9 @@ class DBFileSet(object):
         return DBFileSet.from_tuples(db, fetch_generator(c))
         
     @staticmethod
-    def all_files(db, dnf, with_metadata, limit):
+    def all_files(db, meta_exp, with_metadata, limit):
         #print("DBDataset.all_files: dnf:", dnf)
-        meta_where_clause = MetaExpressionDNF(dnf).sql("files")
+        meta_where_clause = MetaExpressionDNF(meta_exp).sql("files")
         limit = "" if limit is None else f"limit {limit}"   
         meta = "files.metadata" if with_metadata else "null"     
         sql = f"""select files.id, files.namespace, files.name, {meta}
@@ -540,7 +545,7 @@ class DBFile(object):
         
 class MetaExpressionDNF(object):
     
-    def __init__(self, meta_exp):
+    def __init__(self, exp):
         #
         # meta_exp is a nested list representing the query filter expression in DNF:
         #
@@ -548,114 +553,139 @@ class MetaExpressionDNF(object):
         # meta_or = [meta_and, ...]
         # meta_and = [(op, aname, avalue), ...]
         #
-        self.Expression = meta_exp
-        #print("validate_exp: exp:", meta_exp)
-        self.validate_exp(meta_exp)
+        print("===MetaExpressionDNF===")
+        self.Exp = None
+        self.DNF = None
+        if exp is not None:
+            #
+            # converts canonic Node expression (meta_or of one or more meta_ands) into nested or-list or and-lists
+            #
+            #assert isinstance(self.Exp, Node)
+            assert exp.T == "meta_or"
+            for c in exp.C:
+                assert c.T == "meta_and"
+    
+            or_list = []
+            for and_item in exp.C:
+                or_list.append(and_item.C)
+            self.DNF = or_list
+
+        #print("MetaExpressionDNF: exp:", self.DNF)
+        #self.validate_exp(meta_exp)
         
     def __str__(self):
         return self.file_ids_sql()
         
     __repr__= __str__
     
-    @staticmethod
-    def validate_exp(exp):
-        #print("validate_exp: exp:", exp)
-        if exp is not None:
-            for and_exp in exp:
-                if not isinstance(and_exp, list):
-                    raise ValueError("The 'and' expression is not a list: %s" % (repr(and_exp),))
-                for cond in and_exp:
-                    if not isinstance(cond, tuple) or len(cond) != 3:
-                        raise ValueError("The 'condition' expression must be a tuple of length 3, instead: %s" % (repr(cond),))
-                    op, aname, aval = cond
-                    if not op in (">" , "<" , ">=" , "<=" , "==" , "=" , "!=", "~~", "~~*", "!~~", "!~~*", "in", "present", "not_present"):
-                        raise ValueError("Unrecognized condition operation: %s" % (repr(op,)))                
-        
-
-    def sql_and(self, and_term, dataset_namespace, dataset_name):
-        #print("sql_and: arg:", and_term)
-        assert len(and_term) > 0
-        parts = []
-        for i, t in enumerate(and_term):
-            op, aname, aval = t
-            cname = None
-            if op == "in":
-                if isinstance(aval, bool):    cname = "bool_array"
-                elif isinstance(aval, int):       cname = "int_array"
-                elif isinstance(aval, float):   cname = "float_array"
-                elif isinstance(aval, str):     cname = "string_array"
-                else:
-                        raise ValueError("Unrecognized value type %s for attribute %s" % (type(aval), aname))
-                parts.append(f"a{i}.name='{aname}' and '{aval}' = any(a{i}.{cname})")
-            else:
-                #print("sql_and: aval:", type(aval), repr(aval))
-                if isinstance(aval, bool):    cname = "bool_value"
-                elif isinstance(aval, int):       cname = "int_value"
-                elif isinstance(aval, float):   cname = "float_value"
-                elif isinstance(aval, str):     cname = "string_value"
-                else:
-                        raise ValueError("Unrecognized value type %s for attribute %s" % (type(aval), aname))
-                parts.append(f"a{i}.name='{aname}' and a{i}.{cname} {op} '{aval}'")
-        joins = [f"inner join file_attributes a{i} on a{i}.file_id = f.id" for i in range(len(parts))]
-        return """
-            select f.id as fid
-                from files f
-                    inner join files_datasets fd on fd.file_id = f.id
-                    %s
-                where 
-                    fd.dataset_namespace = '%s' and fd.dataset_name = '%s' and
-                    %s
-                """ % (
-                " ".join(joins), dataset_namespace, dataset_name, " and ".join(parts))
-                
     def sql_and(self, and_term, table_name):
+
+        def sql_literal(v):
+            if isinstance(v, str):       v = "'%s'" % (v,)
+            elif isinstance(v, bool):    v = "true" if v else "false"
+            elif v is None:              v = "null"
+            else:   v = str(v)
+            return v
+            
+        def json_literal(v):
+            if isinstance(v, str):       v = '"%s"' % (v,)
+            else:   v = sql_literal(v)
+            return v
+            
+        def pg_type(v):
+            if isinstance(v, bool):   pgtype='boolean'
+            elif isinstance(v, str):   pgtype='text'
+            elif isinstance(v, int):   pgtype='bigint'
+            elif isinstance(v, float):   pgtype='double precision'
+            else:
+                raise ValueError("Unrecognized literal type: %s %s" % (v, type(v)))
+            return pgtype
+            
         contains_items = []
         parts = []
-        for tup in and_term:
-            op, args = tup[0], tup[1:]
-            if op in ("=", "=="):
-                aname, aval = args
-                v = str(aval)
-                if isinstance(aval, str):       v = '"%s"' % (aval,)
-                elif isinstance(aval, bool):    v = "true" if aval else "false"
-                contains_items.append('"%s":%s' % (aname, v))
-            elif op == "in":
-                aname, aval = args
-                val = '"%s"' % (aval,) if isinstance(aval, str) else str(aval)
-                contains_items.append('"%s":[%s]' % (aname, val))
-            elif op == "present":
-                aname = args[0]
-                parts.append(f"{table_name}.metadata ? '{aname}'")
-            elif op == "not_present":
-                aname = args[0]
-                parts.append(f"not ({table_name}.metadata ? '{aname}')")
-            elif op == "subscript_cmp":
-                aname, inx, cmpop, aval = args
-                v = str(aval)
-                if isinstance(aval, str):       v = '"%s"' % (aval,)
-                elif isinstance(aval, bool):    v = "true" if aval else "false"
-                if cmpop in ('=', '=='):
-                    if inx == '*':
-                        contains_items.append(f'"{aname}":[{v}]')
-                    elif isinstance(inx, str):
-                        contains_items.append(f'"{aname}":{"{inx}":{v}}')
-                    else:
-                        parts.append(f"{table_name}.metadata @@ '$.\"{aname}\"[{inx}] == {v}'")
-                elif inx == '*':
-                    parts.append(f"{table_name}.metadata @@ '$.\"{aname}\"[*] {cmpop} {v}'")
-                else:
-                    parts.append(f"{table_name}.metadata ->> '{\"{aname}\",\"{inx}\"}' {cmpop} '{v}'")
+        for exp in and_term:
+            print("sql_and:")
+            print(exp.pretty("    "))
+
+            op = exp.T
+            args = exp.C
+            arg = args[0]
+
+            if arg.T == "array_subscript":
+                # a[i] = x
+                aname, inx = arg["name"], arg["index"]
+                inx = json_literal(inx)
+                subscript = f"[{inx}]"
+            elif arg.T == "array_any":
+                aname = arg["name"]
+                subscript = "[*]"
             else:
-                aname, aval = args
-                parts.append(f"{table_name}.metadata ->> '{aname}' {op} '{aval}'")
+                aname = arg["name"]
+                subscript = ""
+            
+            if op == "present":
+                aname = arg["name"]
+                parts.append(f"{table_name}.metadata ? '{aname}'")
+
+            elif op == "not_present":
+                aname = arg["name"]
+                parts.append(f"not ({table_name}.metadata ? '{aname}')")
+                
+            elif op == "in_range":
+                assert len(args) == 1
+                typ, low, high = exp["type"], exp["low"], exp["high"]
+                low = json_literal(low)
+                high = json_literal(high)
+                if arg.T == "array_subscript" or arg.T == "scalar":
+                    # a[i] in x:y or a in x:y
+                    parts.append(f"{table_name}.metadata @@ '$.\"{aname}\"{subscript} >={low}'")
+                    parts.append(f"{table_name}.metadata @@ '$.\"{aname}\"{subscript} <={high}'")
+                elif arg.T == "array_any":
+                    # a[*] in x:y
+                    aname = arg.M
+                    parts.append(f"{table_name}.metadata @? '$.\"{aname}\"[*] ? (@ >= {low} && @ <= {high})'")
+
+            elif op == "in_set":
+                assert len(args) == 1
+                values = [json_literal(x) for x in exp["set"]]
+                or_parts = [f"({table_name}.metadata @@ '$.\"{aname}\"{subscript} == {v}')" for v in values]
+                parts.append("(%s)" % (" or ".join(or_parts),))
+                    
+            elif op == "cmp_op":
+                cmp_op = exp["op"]
+                value = args[1]
+                value_type, value = value.T, value["value"]
+                value = json_literal(value)
+
+                if cmp_op in (">", ">=", "<", "<=", "=", "==", "!="):
+                    if cmp_op == '=': cmp_op = "=="
+                    parts.append(f"{table_name}.metadata @@ '$.\"{aname}\"{subscript} {cmp_op} {value}'")
+                elif cmp_op in ("~", "~*", "!~", "!~*"):
+                    negated = cmp_op.startswith('!')
+                    if negated: cmp_op = cmp_op[1:]
+                    flags = ' flag "i"' if cmp_op.endswith("*") else ''
+                    part = f"{table_name}.metadata @@ '$.\"{aname}\"{subscript} like_regex {value}{flags}'"
+                    if negated:
+                        part = "not "+part
+                    parts.append(part)
 
         if contains_items:
             parts.append("%s.metadata @> '{%s}'" % (table_name, ",".join(contains_items )))
+            
+        if Debug:
+            print("sql_and():")
+            print(" and_terms:")
+            for t in and_term:
+                print(t.pretty("    "))
+            print("output parts:")
+            for p in parts:
+                print("      ", p)
+            
         return " and ".join([f"({p})" for p in parts])
         
     def sql(self, table_name):
-        if self.Expression:
-            return " or ".join([self.sql_and(t, table_name) for t in self.Expression])
+        if self.DNF:
+            return " or ".join([self.sql_and(t, table_name) for t in self.DNF])
         else:
             return " true "
             
@@ -778,7 +808,8 @@ class DBDataset(object):
                                         {limit}
                                         """
 
-        #print("DBDataset.list_files: sql:", sql)
+        if Debug:
+            print("DBDataset.list_files: sql:", sql)
         self.SQL = sql 
         c = self.DB.cursor()
         c.execute(sql)
@@ -812,7 +843,11 @@ class DBDataset(object):
         #
         datasets = set()
         c = db.cursor()
-        for match, (namespace, name) in patterns:
+        #print("DBDataset.list_datasets: patterns:", patterns)
+        for pattern in patterns:
+            match = pattern["wildcard"]
+            namespace = pattern["namespace"]
+            name = pattern["name"]
             #print("list_datasets: match, namespace, name:", match, namespace, name)
             if match:
                 c.execute("""select namespace, name from datasets
@@ -975,6 +1010,7 @@ class DBUser(object):
         self.Flags = flags
         self.DB = db
         self.Authenticators = {}        # type -> [secret,...]
+        self.Roles = None
         
     def __str__(self):
         return "DBUser(%s, %s, %s, %s)" % (self.Username, self.Name, self.EMail, self.Flags)
@@ -1025,16 +1061,35 @@ class DBUser(object):
         return u
         
     def is_admin(self):
-        return "a" in self.Flags
+        return "a" in (self.Flags or "")
     
     @staticmethod 
     def list(db):
+        rolesdict = {}
         c = db.cursor()
-        c.execute("""select username, name, email, flags from users order by username""")
-        return (DBUser(db, username, name, email, flags) for  username, name, email, flags in c.fetchall())  
+        c.execute("""select u.username, u.name, u.email, u.flags, array_agg(r.name)
+                from users u 
+                    left outer join roles r on (u.username = any(r.users)) 
+                group by u.username, u.name, u.email, u.flags
+        """)
+        for username, name, email, flags, roles in c.fetchall():
+            if roles == [None]: roles = []
+            roles = sorted(roles)
+            user_roles = []
+            for rn in roles:
+                r = rolesdict.get(rn)
+                if r is None:
+                    r = DBRole.get(db, rn)
+                    rolesdict[rn] = r
+                user_roles.append(user_roles)
+            u = DBUser(db, username, name, email, flags)
+            u.Roles = user_roles
+            #print("DBUser.list: yielding:", u)
+            yield u
         
     def roles(self):
-        return DBRole.list(self.DB, user = self)
+        if self.Roles is None:  self.Roles = DBRole.list(self.DB, user = self)
+        return self.Roles
         
     def namespaces(self):
         return DBNamespace.list(self.DB, owned_by_user=self)        

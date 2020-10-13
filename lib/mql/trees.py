@@ -45,60 +45,60 @@ class Node(object):
 
     JSON_CLASS = "node"
 
-    def __init__(self, typ, children=[], meta=None):
+    def __init__(self, typ, children=[], _data=None, _meta=None, **kw):
         self.T = typ
-        self.M = meta
+        self.M = _meta
         self.C = children[:]
+        self.D = {}
+        self.D.update(_data or {})
+        self.D.update(kw)
 
     def __str__(self):
-        return "Node(%s (%d children) meta:%s)" % (self.T, len(self.C), self.M)
+        return "Node(%s (%d children) (%d data) meta:%s)" % (self.T, len(self.C), len(self.D), self.M)
         
     __repr__ = __str__
+    
+    def __getitem__(self, name):
+        return self.D[name]
         
-    def __add__(self, lst):
-        return Node(self.T, self.C + lst, self.M)
-        
-    def __iadd__(self, addition):
-        if isinstance(addition, Node):
-            self.C.append(addition)
-        elif isinstance(addition, list):
-            self.C += addition
-        else:
-            raise ValueError("Unknown type: %s %s, expected either a Node or a list of Nodes" % (type(addition), addition))
-        return self
+    def get(self, name, default=None):
+        return self.D.get(name, default)
 
-    def as_list(self):
-        out = [self.T, self.M]
-        for c in self.C:
-                if isinstance(c, Node):
-                        out.append(c.as_list())
-                else:
-                        out.append(c)
-        return out
+    def __setitem__(self, name, value):
+        self.D[name] = value
         
-    def _pretty(self, indent=""):
-        out = []
-        out.append("%s%s" % (indent, self.T))
+    def _pretty(self, indent="", headline_indent=None):
+        if headline_indent is None: headline_indent = indent
+        
+        head = "%s%s" % (headline_indent, self.T)
+
         if self.M is not None:
-            if isinstance(self.M, Node):
-                meta_pretty = self.M._pretty("")
-                out.append("%s. m:%s" % (indent, meta_pretty[0]))
-                out += [indent + ". . " + l for l in meta_pretty[1:]]
+            head += f" m:{self.M}"
+        
+        out = [head]
+
+        for k, v in self.D.items():
+            key = f"{k}: "
+            if isinstance(v, Node) or hasattr(v, "_pretty"):
+                key_len = len(key)
+                shift = " "*key_len
+                #print("calling _pretty for %s" % (v,))
+                out += v._pretty(indent = indent + ". " + shift, headline_indent = indent + ". " + key)
             else:
-                out.append("%s. (%s)" % (indent, self.M))
+                out.append(indent + f". {key}{repr(v)}")
         
         nc = len(self.C)
         for i, c in enumerate(self.C):
             extra = ". "
-            if isinstance(c, (Token, Node)):
+            if isinstance(c, (Token, Node)) or hasattr(c, "_pretty"):
                 out += c._pretty(indent+extra)
             else:
                 out.append("%s%s" % (indent + ". ", repr(c)))
         return out
         
-    def pretty(self):
+    def pretty(self, indent=""):
         #print("pretty---")
-        return "\n".join(self._pretty())
+        return "\n".join(self._pretty(indent))
         
     def jsonable(self):
         d = dict(T=self.T, M=self.M, C=[c.jsonable() if isinstance(c, Node) else c
@@ -130,6 +130,17 @@ class Node(object):
     @staticmethod
     def from_json(text):
         return Node.from_jsonable(json.loads(text))
+        
+    def find_all(self, node_type=None, predicate=None, top_down=True):
+        def match(c):
+            return (node_type is not None and c.T == node_type) or (predicate is not None and predicate(c))
+        if top_down and match(self):
+            yield self
+        for c in self.C:
+            if match(c):
+                yield(c)
+        if not top_down and match(self):
+            yield self
 
 def pass_node(method):
     def decorated(self, *params, **args):
@@ -182,7 +193,7 @@ class Descender(object):
         if not isinstance(node, Node):
             return node
 
-        node_type, children = node.T, node.C
+        node_type = node.T
         
         if hasattr(self, node_type):
             method = getattr(self, node_type)
@@ -197,6 +208,10 @@ class Descender(object):
 
     def visit_children(self, node, context):
         node.C = [self.walk(c, context) for c in node.C]
+        node.D = {
+            key:self.walk(n, context)
+            for key, n in node.D.items()
+        }
         return node
         
     def _default(self, node, context):
@@ -209,31 +224,26 @@ class Ascender(object):
         self.Indent = ""
 
     def walk(self, node):
-        #print("Ascender %s: walk: in: %s" % (self.__class__.__name__, node))
         if not isinstance(node, Node):
             return node
         node_type, children = node.T, node.C
-        #print("Ascender.walk:", node_type, children)
         assert isinstance(node_type, str)
-        #print("walk: in:", node.pretty())
         saved = self.Indent 
         self.Indent += "  "
         children = [self.walk(c) for c in children]
         self.Indent = saved
-        #print("walk: children->", children)
         if hasattr(self, node_type):
             method = getattr(self, node_type)
             if hasattr(method, "__pass_node__") and getattr(method, "__pass_node__"):
                 out = method(node)
             else:
-                out = method(children, node.M)
+                out = method(*children, **node.D)
         else:
             out = self._default(node, children)
-        #print("Ascender %s: walk: out: %s" % (self.__class__.__name__, out))
         return out
         
     def _default(self, node, children):
-        return Node(node.T, children=children, meta=node.M)
+        return Node(node.T, children, _meta=node.M, _data=node.D)
         
 class PostParser(Transformer):
     
@@ -243,9 +253,32 @@ class PostParser(Transformer):
     
     def __default__(self, data, children, meta):
         #print("PostParser.__default(", data, children, meta, ")")
-        return Node(data, children)
+        return Node(data, children, meta=meta)
         
     def __default_token__(self, token):
         return Token(token.type, token.value)
         
-        
+
+if __name__ == "__main__":
+    
+    x = Node("leaf", [], value="hello there", meta=(1,2,3))
+    y = Node("leaf", [], value=5)
+    
+    pi = Node("float", 
+        [
+            Node("sub_float", [], value=1234),
+            Node("sub_float", [], meta=1234)
+        ], value=3.14)
+    e = Node("float", 
+        [
+            Node("sub_float", [], value=1234),
+            Node("sub_float", [], meta=1234)
+        ], value=(2.718, 2818)
+    )
+    
+    tree = Node("top", [x,y], value="some value", data=dict(
+                pi = pi, e_extended_name = e, x = ("just","a","tuple")
+    ))
+
+    print(tree.pretty())
+    

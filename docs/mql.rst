@@ -127,8 +127,6 @@ Although is it not necessary in this example, you can use parethesis and white s
         (files from MC:Beam where e1 > 10) 
         - (files from MC:Exotics where type = "abcd")
         
-        files - files where data_type="mc"
-
 Also, you can use square and curly brackets as an alternative to using explicit words "union" and "join" respectively.
 The following two queries are equivalent:
 

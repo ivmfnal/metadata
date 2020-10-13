@@ -75,7 +75,7 @@ def read_file_list(opts):
     else:
         lst = source.split(",")
 
-    return ({field:x} for x in lst if x)
+    return [{field:x} for x in lst if x]
 
 _declare_smaple = [
     {        

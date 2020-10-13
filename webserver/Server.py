@@ -370,6 +370,7 @@ class GUIHandler(BaseHandler):
             self.redirect(self.scriptUri() + "/auth/login?redirect=" + self.scriptUri() + "/gui/users")
         db = self.App.connect()
         users = DBUser.list(db)
+        #print("Server.users: users:", users)
         return self.render_to_response("users.html", users=users, error=unquote_plus(error), admin = me.is_admin())
         
     def user(self, request, relpath, username=None, error="", **args):
@@ -470,6 +471,11 @@ class GUIHandler(BaseHandler):
         
     def save_namespace(self, request, relpath, **args):
         db = self.App.connect()
+        me = self.authenticated_user()
+        if not me:
+            self.redirect(self.scriptUri() + "/auth/login?redirect=" + self.scriptUri() + "/gui/namespaces")
+        if not me.is_admin():
+            self.redirect("./namespaces?error=%s" % (quote_plus("Not authorized to modify roles")))
         name = request.POST["name"]
         role = request.POST.get("role")
         if role is not None:
@@ -478,6 +484,9 @@ class GUIHandler(BaseHandler):
         if ns is None:
             assert role is not None
             ns = DBNamespace(db, name, role)
+            ns.save()
+        elif role is not None:
+            ns.Owner = role
             ns.save()
         self.redirect("./namespaces")
         
@@ -751,9 +760,9 @@ class DataHandler(BaseHandler):
                 f = DBFile.get(db, name=name, namespace=namespace)
                 if f is None:
                     return f"File {namespace}:{name} not found", 404
-            namespace = f.Namespace
-            if not self._namespace_authorized(db, user, namespace):
-                return f"Permission to add files from namespace {namespace} is denied", 403
+            #namespace = f.Namespace
+            #if not self._namespace_authorized(db, user, namespace):
+            #    return f"Permission to add files from namespace {namespace} is denied", 403
             files.append(f)
         if files:
             ds.add_files(files, do_commit=True)

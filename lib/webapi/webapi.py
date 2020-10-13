@@ -28,11 +28,17 @@ class HTTPClient(object):
         return data
         
     def post_json(self, uri_suffix, data):
+        #print("post_json: data:", type(data), data)
         if isinstance(data, (dict, list)):
             data = json.dumps(data)
         else:
             data = to_bytes(data)
+        #print("post_json: data:", type(data), data)
+            
+        
+            
         url = "%s/%s" % (self.ServerURL, uri_suffix)
+        
         response = requests.post(url, 
                 data = data,
                 headers = {"X-Authentication-Token": self.Token.encode()}

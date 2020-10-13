@@ -22,21 +22,26 @@ create temp table attrs (
 insert into attrs(file_id, name, type, ivalue)
 (  select df.file_id, 'SAM.event_count', 'i', df.event_count
                 from active_files df
+                where df.event_count is not null
    union
    select df.file_id, 'SAM.first_event_number', 'i', df.first_event_number
                 from active_files df
+                where df.first_event_number is not null
    union
    select df.file_id, 'SAM.last_event_number', 'i', df.last_event_number
                 from active_files df
+                where df.last_event_number is not null
 );
 
 insert into attrs(file_id, name, type, fvalue)
 (
    select df.file_id, 'SAM.start_time', 'f', extract(epoch from df.start_time)
                 from active_files df
+                where df.start_time is not null
    union
    select df.file_id, 'SAM.end_time', 'f', extract(epoch from df.end_time)
                 from active_files df
+                where df.end_time is not null
 ) ;
 
 insert into attrs(file_id, name, type, ivalue)
@@ -47,7 +52,8 @@ insert into attrs(file_id, name, type, ivalue)
                 inner join param_types pt on pt.param_type_id = dfv.param_type_id
                 inner join data_types dt on dt.data_type_id = pt.data_type_id
                 inner join param_categories pc on pc.param_category_id = pt.param_category_id
-                where dt.data_type_id =5
+                where dt.data_type_id = 5
+                    and param_value is not null
 
 );
 
@@ -61,6 +67,7 @@ insert into attrs(file_id, name, type, fvalue)
                 inner join data_types dt on dt.data_type_id = pt.data_type_id
                 inner join param_categories pc on pc.param_category_id = pt.param_category_id
                 where dt.data_type_id = 6
+                    and param_value is not null
 );
 
 -- string attrs
@@ -73,6 +80,7 @@ insert into attrs(file_id, name, type, svalue)
                 inner join data_types dt on dt.data_type_id = pt.data_type_id
                 inner join param_categories pc on pc.param_category_id = pt.param_category_id
                 where dt.data_type = 'string'
+                    and pv.param_value is not null
 );
 
 

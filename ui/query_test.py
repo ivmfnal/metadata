@@ -24,7 +24,7 @@ if not sys.argv[1:] or sys.argv[1] in ("help", "--help", "-?"):
     sys.exit(2)
 
 cmd = sys.argv[1]
-opts, args = getopt(sys.argv[2:], "vc:")
+opts, args = getopt(sys.argv[2:], "vc:o")
 opts = dict(opts)
 
 if cmd == "parse":
@@ -32,7 +32,12 @@ if cmd == "parse":
     print("Query text:'%s'" % (qtext,))
     q = parse_query(qtext)
     print("Converted:---------------")
-    print(q.Tree.pretty())
+    print(q.Tree.pretty("    "))
+    if "-o" in opts:
+        q.skip_assembly()
+        optimized = q.optimize()
+        print("Optimized:---------------")
+        print(optimized.pretty("    "))
 elif cmd == "run":
     
     def connect(dbcfg):

@@ -3,7 +3,7 @@ create table users
     username    text    primary key,
     name        text,
     email       text,
-    flags       text
+    flags       text    default ''
 );
 
 create table roles
