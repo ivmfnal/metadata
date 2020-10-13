@@ -14,62 +14,70 @@ time ./load_files.sh
 
 drop_meta_table
 
+echo Starting parallel preloading at `date` ...
+
 (
 echo
 echo --- preloading attributes ...
-time ./preload_attrs.sh
+./preload_attrs.sh
 
 echo
-echo --- preloading data streams ...
-time ./preload_data_streams.sh
+echo --- splitting DUNE_data.detector_config values into lists ...
+./preload_detector_config.sh
 )&
 
 
 (
 echo
 echo --- preload runs/subruns ...
-time ./preload_runs_subruns.sh
+./preload_runs_subruns.sh
 
 echo
 echo --- splitting lbne_data.detector_type values into lists ...
-time ./preload_detector_type.sh
+./preload_detector_type.sh
 
 echo
-echo --- splitting DUNE_data.detector_config values into lists ...
-time ./preload_detector_config.sh
+echo --- preloading data streams ...
+./preload_data_streams.sh
+
+echo
+echo --- preloading event numbers
+./preload_event_numbers.sh
 ) &
 
 (
 echo
 echo --- preloading content sratus ...
-time ./preload_content_status.sh
+./preload_content_status.sh
 
 echo
 echo --- preloading file formats ...
-time ./preload_formats.sh
+./preload_formats.sh
 
 echo
 echo --- preloading file types ...
-time ./preload_file_types.sh
+./preload_file_types.sh
+
 ) &
 
 (
 echo
 echo --- preloading run types ...
-time ./preload_run_types.sh
+./preload_run_types.sh
 
 echo
 echo --- preloading data tiers ...
-time ./preload_data_tiers.sh
+./preload_data_tiers.sh
 
 echo
 echo --- preloading app families ...
-time ./preload_app_families.sh
+./preload_app_families.sh
 )&
 
-echo waiting for parallel paths to join ...
+echo Waiting for parallel paths to join ...
 
 wait
+echo Parallel preloading finished at `date` 
 
 echo
 echo --- merging metadata into the files table ...

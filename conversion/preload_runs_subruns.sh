@@ -42,7 +42,7 @@ insert into temp_run_subrun_arrays(file_id, name, value)
 
 insert into temp_run_subrun_arrays(file_id, name, value)
         ( 
-            select file_id, 'SAM.runs_subruns', array_agg(run::bigint*1000+subrun::bigint) 
+            select file_id, 'SAM.runs_subruns', array_agg(run::bigint*10000+subrun::bigint) 
 		        from temp_runs_subruns where subrun is not null 
 		        group by file_id 
 	    )
