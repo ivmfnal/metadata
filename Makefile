@@ -1,4 +1,4 @@
-PRODUCT=metadata
+PRODUCT=metacat
 VERSION=1.4
 BUILD_DIR=$(HOME)/build/$(PRODUCT)
 TARDIR=/tmp
