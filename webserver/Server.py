@@ -1259,14 +1259,15 @@ import sys, getopt
 
 opts, args = getopt.getopt(sys.argv[1:], "c:")
 opts = dict(opts)
-config = opts.get("-c", os.environ.get("METADATA_SERVER_CFG"))
+config = opts.get("-c", os.environ.get("METACAT_SERVER_CFG"))
 if not config:
     print("Configuration file must be provided either using -c command line option or via METADATA_SERVER_CFG environment variable")
     sys.exit(1)
     
 config = yaml.load(open(config, "r"), Loader=yaml.SafeLoader)  
 cookie_path = config.get("cookie_path", "/metadata")
-static_location = config.get("static_location", "./static")
+static_location = os.environ.get("METACAT_SERVER_STATIC_DIR", "./static")
+static_location = config.get("static_location", static_location)
 application=App(config, RootHandler, static_location=static_location)
 
 templdir = config.get("templates", ".")

@@ -757,7 +757,7 @@ class DBDataset(object):
 
 
 
-    def list_files(self, recursive=False, with_metadata = False, condition=None, relationship="self",
+    def list_files(self, recursive=False, with_metadata = False, condition=None, relationship=None,
                 limit=None):
         # condition is the filter condition in DNF nested list format
 

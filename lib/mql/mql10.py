@@ -152,9 +152,8 @@ class DatasetSelector(object):
         # apply params from "with ..."
         default_namespace = params.get("namespace")
         if default_namespace:
-            self.Patterns = [(match, (namespace or default_namespace, name)) 
-                for match, (namespace, name) in self.Patterns
-            ]
+            for p in self.Patterns:
+                p["namespace"] = p["namespace"] or default_namespace
         
 class _ParamsApplier(Descender):
     

@@ -23,7 +23,7 @@
 	}
         
         
-        table.data {
+        table.data, table.file_metadata {
             border-collapse: collapse;
         }
         
@@ -38,6 +38,12 @@
         
         .link_menu td {
             padding: 5px;
+        }
+        
+        .file_metadata td, .file_metadata th {
+            padding: 3px 5px;
+            border-top: 1px solid #CCC;
+            border-bottom: 1px solid #CCC;
         }
         
         .data td, .data th {
@@ -135,6 +141,31 @@
     a.button {
         text-decoration: none;
     }
+    
+    .file_metadata td.attr_name {
+        padding-left:30px;
+    }
+    
+    .file_metadata td.attr_name, .file_metadata td.attr_value {
+        font-family:  "Lucida Console", Courier, monospace;
+        font-size: 12px;
+    }
+    
+    .file_metadata td.fid, .file_metadata td.filename {
+        padding-top: 15px;
+        font-family:  arial;
+        font-size: 14px;
+    }
+    
+    .file_metadata a:link, .file_metadata a:visited {
+            text-decoration: none;
+            color: #44A;
+        }
+    
+    #meta_stats_toggle {
+        font: 16px monospace;
+    }
+    
     </style>
     
     <script src="{{GLOBAL_AppTopPath}}/static/js/request.js"></script>
