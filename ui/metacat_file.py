@@ -69,10 +69,9 @@ def read_file_list(opts):
         sys.exit(2)
         
     if source == "-":
-        source = sys.stdin
+        lst = (x.strip() for x in sys.stdin.readlines())
     elif source.startswith("@"):
-        source = open(source[1:], "r")
-        lst = (x.strip() for x in source.readlines())
+        lst = (x.strip() for x in open(source[1:], "r").readlines())
     else:
         lst = source.split(",")
 
