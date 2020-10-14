@@ -1273,6 +1273,8 @@ templdir = config.get("templates", ".")
 if templdir.startswith("$"):
     templdir = os.environ[templdir[1:]]
 
+print("templdir=", templdir)
+
 application.initJinjaEnvironment(
     tempdirs=[templdir, "."],
     globals={
