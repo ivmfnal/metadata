@@ -1268,8 +1268,13 @@ config = yaml.load(open(config, "r"), Loader=yaml.SafeLoader)
 cookie_path = config.get("cookie_path", "/metadata")
 static_location = config.get("static_location", "./static")
 application=App(config, RootHandler, static_location=static_location)
+
+templdir = config.get("templates", ".")
+if templdir.startswith("$"):
+    templdir = os.environ[templdir[1:]]
+
 application.initJinjaEnvironment(
-    tempdirs=[config.get("templates", ".")], 
+    tempdirs=[templdir, "."],
     globals={
         "GLOBAL_Version": Version, 
         "GLOBAL_SiteTitle": config.get("site_title", "DEMO Metadata Catalog")
