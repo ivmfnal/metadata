@@ -2,7 +2,7 @@ import uuid, json, hashlib, re
 from metacat.util import to_bytes, to_str
 from psycopg2 import IntegrityError
 
-Debug = True
+Debug = False
 
 def debug(*parts):
     if Debug:
@@ -172,26 +172,6 @@ class DBFileSet(object):
     __sub__ = subtract
     
     @staticmethod
-    def from_data_source(db, data_source_meta, with_metadata, limit):
-        datasets = list(DBDataset.list_datasets(db, data_source_meta.Patterns, data_source_meta.WithChildren, 
-                data_source_meta.Recursively, data_source_meta.Having))
-        dataset_specs = [(ds.Namespace, ds.Name) for ds in datasets]
-        dnf = data_source_meta.wheres_dnf()
-        if limit is None:
-            limit = data_source_meta.Limit
-        elif data_source_meta.Limit is not None:
-            limit = min(limit, data_source_meta.Limit)
-            
-        if True:
-            if len(datasets) == 1:
-                return datasets[0].list_files(with_metadata = with_metadata, condition=dnf, limit=limit)
-            else:
-                return DBDataset.files_from_multiple_datasets(db, datasets, dnf, with_metadata, limit)
-        else:
-            return DBFileSet.union(db, (ds.list_files(with_metadata = with_metadata, condition=dnf, limit=limit) 
-                            for ds in datasets)).limit(limit)
-        
-    @staticmethod
     def from_basic_query(db, basic_file_query, with_metadata, limit):
         
         if limit is None:
@@ -208,35 +188,18 @@ class DBFileSet(object):
 
         if dataset_selector is None:
             return DBFileSet.all_files(db, dnf, with_metadata, limit)
-        elif len(datasets) == 1:
-            return datasets[0].list_files(with_metadata = with_metadata, condition=basic_file_query.Wheres, limit=limit)
-        else:
-            return DBFileSet.files_from_multiple_datasets(db, datasets, dnf, with_metadata, limit)
             
-    @staticmethod
-    def files_from_multiple_datasets(db, datasets, meta_exp, with_metadata, limit):
-        datasets = list(datasets)
-        dataset_names = set(ds.Name for ds in datasets)
-        dataset_namespaces = set(ds.Namespace for ds in datasets)
-        specs = ["%s:%s" % (ds.Namespace, ds.Name) for ds in datasets]
-        meta_where_clause = MetaExpressionDNF(meta_exp).sql("files")
-        limit = "" if limit is None else f"limit {limit}"   
-        meta = "files.metadata" if with_metadata else "null"     
-        sql = f"""select files.id, files.namespace, files.name, {meta}
-                                        from files
-                                        inner join files_datasets fd on fd.file_id = files.id
-                                        where 
-                                            fd.dataset_namespace = any(%s)
-                                            and fd.dataset_name = any(%s)
-                                            and fd.dataset_namespace || ':' || fd.dataset_name = any(%s) 
-                                            and {meta_where_clause}
-                                        {limit}
-                                        """
-
-        #print("DBDataset.files_from_multiple_datasets: sql:", sql)
-        c = db.cursor()
-        c.execute(sql, (list(dataset_namespaces), list(dataset_names), specs))
-        return DBFileSet.from_tuples(db, fetch_generator(c))
+        elif len(datasets) == 1:
+            return datasets[0].list_files(with_metadata = with_metadata, condition=basic_file_query.Wheres, limit=limit,
+                        relationship = basic_file_query.Relationship)
+        else:
+            return DBFileSet.union(
+                        ds.list_files(
+                            with_metadata = with_metadata, condition=basic_file_query.Wheres,
+                            relationship = basic_file_query.Relationship, limit=limit
+                        )
+                        for ds in datasets
+            )
         
     @staticmethod
     def all_files(db, meta_exp, with_metadata, limit):
@@ -553,7 +516,7 @@ class MetaExpressionDNF(object):
         # meta_or = [meta_and, ...]
         # meta_and = [(op, aname, avalue), ...]
         #
-        print("===MetaExpressionDNF===")
+        debug("===MetaExpressionDNF===")
         self.Exp = None
         self.DNF = None
         if exp is not None:
@@ -604,8 +567,8 @@ class MetaExpressionDNF(object):
         contains_items = []
         parts = []
         for exp in and_term:
-            print("sql_and:")
-            print(exp.pretty("    "))
+            debug("sql_and:")
+            debug(exp.pretty("    "))
 
             op = exp.T
             args = exp.C
@@ -796,28 +759,44 @@ class DBDataset(object):
 
     def list_files(self, recursive=False, with_metadata = False, condition=None, relationship="self",
                 limit=None):
-        # relationship is ignored for now
         # condition is the filter condition in DNF nested list format
 
-        meta_where_clause = MetaExpressionDNF(condition).sql("files")
         limit = "" if limit is None else f"limit {limit}"        
-        if with_metadata:
-            sql = f"""select files.id, files.namespace, files.name, files.metadata
-                                        from files
-                                        inner join files_datasets fd on fd.file_id = files.id
-                                        where fd.dataset_namespace='{self.Namespace}' and fd.dataset_name='{self.Name}' and
-                                            {meta_where_clause}
-                                        {limit}
-                                        """
-        else:
-            sql = f"""select files.id, files.namespace, files.name, null
-                                        from files
-                                        inner join files_datasets fd on fd.file_id = files.id
-                                        where fd.dataset_namespace='{self.Namespace}' and fd.dataset_name='{self.Name}' and
-                                            {meta_where_clause}
-                                        {limit}
-                                        """
-
+        if relationship is None:
+            meta = "f.metadata" if with_metadata else "null"
+            meta_where_clause = MetaExpressionDNF(condition).sql("f")
+            sql = f"""select f.id, f.namespace, f.name, {meta}
+                        from files f
+                        inner join files_datasets fd on fd.file_id = f.id
+                        where fd.dataset_namespace='{self.Namespace}' and fd.dataset_name='{self.Name}' and
+                            {meta_where_clause}
+                        {limit}
+                        """
+        elif relationship == "children_of":
+            meta = "c.metadata" if with_metadata else "null"
+            meta_where_clause = MetaExpressionDNF(condition).sql("p")
+            sql = f"""select c.id, c.namespace, c.name, {meta}
+                        from files c
+                            inner join parent_child pc on c.id = pc.child_id
+                            inner join files p on p.id = pc.parent_id
+                            inner join files_datasets fd on fd.file_id = p.id
+                        where fd.dataset_namespace='{self.Namespace}' and fd.dataset_name='{self.Name}' and
+                            {meta_where_clause}
+                        {limit}
+                        """
+        elif relationship == "parents_of":
+            meta = "p.metadata" if with_metadata else "null"
+            meta_where_clause = MetaExpressionDNF(condition).sql("c")
+            sql = f"""select p.id, p.namespace, p.name, {meta}
+                        from files p
+                            inner join parent_child pc on p.id = pc.parent_id
+                            inner join files c on c.id = pc.child_id
+                            inner join files_datasets fd on fd.file_id = c.id
+                        where fd.dataset_namespace='{self.Namespace}' and fd.dataset_name='{self.Name}' and
+                            {meta_where_clause}
+                        {limit}
+                        """
+            
         if Debug:
             print("DBDataset.list_files: sql:", sql)
         self.SQL = sql 

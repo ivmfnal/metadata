@@ -182,7 +182,7 @@ class Visitor(object):	# deprecated
 class Descender(object):
 
     #
-    # Descends objects top to bottom, possibly replacing them
+    # Descends nodes top to bottom, possibly replacing them
     # If a user method is defined for the node type, it has to explicitly call visit_children(self, context)
     # If the user method returns None, it is equivalent to returning the node itself
     # Default method does visit children

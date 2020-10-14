@@ -76,14 +76,24 @@ def _make_DNF(exp, op=None, exp1=None):
             
 class BasicFileQuery(object):
     
-    def __init__(self, dataset_selector, where=None):
+    def __init__(self, dataset_selector, where=None, relationship=None):
+        #
+        # Encapsulates query like:
+        #   select files from datasets where wheres
+        # or, if relationship == "parent"
+        #   select parents of (files from datasets where wheres)
+        # or, if relationship == "children"
+        #   select children of (files from datasets where wheres)
+        #
+        
+        self.Relationship = relationship
         self.DatasetSelector = dataset_selector
         self.Wheres = where 
         self.Limit = None
         self.WithMeta = False       # this is set to True if the query has "where" clouse
         
     def __str__(self):
-        return "BasicFileQuery(selector:%s, limit:%s)" % (self.DatasetSelector, self.Limit)
+        return "BasicFileQuery(selector:%s, limit:%s, rel:%s)" % (self.DatasetSelector, self.Limit, self.Relationship or "")
         
     def _pretty(self, indent="", headline_indent=None):
         #print(f"BasicFileQuery._pretty(indent='{indent}', headline_indent='{headline_indent}')")
@@ -222,35 +232,45 @@ class FileQuery(object):
             self.Assembled = self.Tree
         return self.Assembled
         
-    def optimize(self):
+    def optimize(self, debug=False):
         #print("Query.optimize: entry")
         assert self.Assembled is not None
         if self.Optimized is None:
             #print("Query.optimize: assembled:----\n", self.Assembled.pretty())
-            optimized = _ProvenancePusher().walk(self.Assembled)
-            #print("Query.optimize: after _ProvenancePusher:----\n", optimized.pretty())
+            
+            optimized = self.Assembled
+            
+            #print("starting _MetaExpPusher...")
             optimized = _MetaExpPusher().walk(optimized, None)
-            #print("Query.optimize: after _MetaExpPusher:----")
-            #print(optimized.pretty("    "))
-            #optimized = _DNFConverter().walk(optimized, None)
-            #print("Query.optimize: after DNF converter:----\n", optimized.pretty())
+            if debug:
+                print("Query.optimize: after _MetaExpPusher:----")
+                print(optimized.pretty("    "))
+            
+            optimized = _ProvenancePusher().walk(optimized, None)
+            if debug:
+                print("Query.optimize: after _ProvenancePusher:----")
+                print(optimized.pretty("    "))
+
             self.Optimized = optimized
         return self.Optimized
 
-    def run(self, db, filters={}, limit=None, with_meta=True, default_namespace=None):
+    def run(self, db, filters={}, limit=None, with_meta=True, default_namespace=None, debug=False):
         #print("Query.run: DefaultNamespace:", self.DefaultNamespace)
         
+        #print("assemble()...")
         self.assemble(db, default_namespace = default_namespace)
         #print("Query.run: assemled:", self.Assembled.pretty())
         
-        optimized = self.optimize()
-        print("Query.run: optimized: ----\n", optimized.pretty())
+        #print("optimize()...")
+        optimized = self.optimize(debug=debug)
+        #print("Query.run: optimized: ----\n", optimized.pretty())
         
         if default_namespace is not None:
             optimized = _ParamsApplier().walk(optimized, {"namespace":default_namespace})
         
+        #print("starting _LimitApplier...")
         optimized = _LimitApplier().walk(optimized, limit)
-        print("Limit %s applied: ----\n" % (limit,), optimized.pretty())
+        #print("Limit %s applied: ----\n" % (limit,), optimized.pretty())
         
         out = _FileEvaluator(db, filters, with_meta, None).walk(optimized)
         #print ("run: out:", out)
@@ -278,6 +298,9 @@ class _Converter(Transformer):
     
     def convert(self, tree):
         return self.transform(tree)
+        
+    def __default__(self, typ, children, meta):
+        return Node(typ, children, _meta=meta)
 
     def merge_meta(self, m1, m2):
         if m1 is None or m2 is None:
@@ -367,20 +390,8 @@ class _Converter(Transformer):
         #print("Converter.named_query(%s): returning %s" % (args, out))
         return out
         
-    def __default__(self, type, children, meta):
-        #print("__default__:", data, children)
-        return Node(type, children)
-        
     def param_def_list(self, args):
         return dict([(a.C[0].value, a.C[1]["value"]) for a in args])
-        
-    def parents_of(self, args):
-        assert len(args) == 1
-        return Node("parents_of", args)
-        
-    def children_of(self, args):
-        assert len(args) == 1
-        return Node("children_of", args)
         
     def union(self, args):
         assert len(args) == 1
@@ -421,7 +432,6 @@ class _Converter(Transformer):
         return Node("minus", [left, right])
         
     def qualified_name(self, args):
-        print("qualified_name: args:", args)
         assert len(args) in (1,2)
         if len(args) == 1:
             out = Node("qualified_name", namespace=None, name=args[0].value)      # no namespace
@@ -429,6 +439,22 @@ class _Converter(Transformer):
             out = Node("qualified_name", namespace=args[0].value, name=args[1].value)
         #print("Converter.qualified_name: returning: %s" % (out.pretty(),))
         return out
+        
+    def ___parents_of(self, args):
+        return self.parentage(args, "parents_of")
+        
+    def ___children_of(self, args):
+        return self.parentage(args, "children_of")
+        
+    def parentage(self, args, relationship):
+        assert len(args) == 1
+        c = args[0]
+        if c.T == "basic_file_query":
+            q = c["query"]
+            if q.Relationship is None:
+                q.Relationship = relationship
+                return c
+        return Node(relationship, args)
 
     def filter(self, args):
         name, params, queries = args
@@ -550,20 +576,30 @@ class _Assembler(Ascender):
 
 class _ProvenancePusher(Descender):
 
+    @pass_node
     def parents_of(self, node, _):
-        children = node.C
-        assert len(children) == 1
-        child = children[0]
-        if isinstance(child, Node) and child.T == "union":
-            return Node("union", [self.walk(Node("parents_of", [cc])) for cc in child.C])
-
+        return self.parentage(node, "parents_of")
+        
     @pass_node
     def children_of(self, node, _):
+        return self.parentage(node, "children_of")
+        
+    def parentage(self, node, relationship):
         children = node.C
         assert len(children) == 1
         child = children[0]
-        if isinstance(child, Node) and child.T == "union":
-            return Node("union", [self.walk(Node("children_of", [cc])) for cc in child.C])
+        if isinstance(child, Node):
+            if child.T == "union":
+                n = Node("union", [self.walk(Node(relationship, [cc])) for cc in child.C])
+                return self.visit_children(n, None)
+            elif child.T == "basic_file_query":
+                bfq = child["query"]
+                #print(f"_ProvenancePusher.parentage({relationship}): bfq:", bfq)
+                if bfq.Relationship is None:
+                    bfq.Relationship = relationship
+                    return child
+                else:
+                    return None         # can not apply parentage: return same BFQ node without changes
 
 class _LimitApplier(Descender):
     
@@ -616,10 +652,9 @@ class _MetaExpPusher(Descender):
         if meta_exp is not None:    
             bfq = node["query"]
             assert isinstance(bfq, BasicFileQuery)
+            assert bfq.Relationship is None             # this will be added by ProvenancePusher, as the next step of the optimization
             bfq.addWhere(meta_exp)
             bfq.WithMeta = True
-            #print("_MetaExpPusher.basic_file_query: added WithMeta=True")
-        #print("_MetaExpPusher.DataSource: out: ", node.pretty())
         return node
         
     def children_of(self, node, meta_exp):
@@ -629,7 +664,7 @@ class _MetaExpPusher(Descender):
             #
             # meta_filter node is created when we can not push the meta_exp down any further
             #
-            return Node("meta_filter", [self.visit_children(node, None)], meta=meta_exp)
+            return Node("meta_filter", [self.visit_children(node, None), meta_exp])
         
     parents_of = children_of
     
@@ -674,9 +709,7 @@ class _FileEvaluator(Ascender):
         return query if limit is None else limited(query, limit)
         
     def meta_filter(self, files, meta_exp):
-        print("meta_filter: args:", args)
-        assert len(args) == 2
-        files, meta_exp = args
+        #print("meta_filter: args:", args)
         if meta_exp is not None:
             out = []
             for f in files:
@@ -740,11 +773,29 @@ class _FileEvaluator(Ascender):
             return not ok
         else:
             raise ValueError("Unrecognized boolean operation '%s'" % (op,))
-            
+    
+    @staticmethod
+    def do_cmp_op(x, op, y):
+        if op == "<":          return x < y
+        elif op == ">":    
+            #print("evaluate_meta_expression: > :", attr_value, value)    
+            return x > y
+        elif op == "<=":       return x <= y
+        elif op == ">=":       return x >= y
+        elif op in ("==",'='): 
+            #print("evaluate_meta_expression:", repr(attr_value), repr(value))
+            return x == y
+        elif op == "!=":       return x != y
+        # - fix elif op == "in":       return value in attr_value       # exception, e.g.   123 in event_list
+        else:
+            raise ValueError("Invalid comparison operator '%s'" % (op,))
+        
     BOOL_OPS = ("and", "or", "not")
 
     def evaluate_meta_expression(self, f, meta_expression):
-        print("evaluate_meta_expression: meta_expression:", meta_expression.pretty())
+        #print("evaluate_meta_expression: meta_expression:", meta_expression.pretty())
+        metadata = f.metadata()
+        #print("    meta:", metadata)
         op, args = meta_expression.T, meta_expression.C
         #print("evaluate_meta_expression:", op, args)
         if op in ("meta_and", "meta_or") and len(args) == 1:
@@ -754,28 +805,99 @@ class _FileEvaluator(Ascender):
         if op in self.BOOL_OPS:
             return self._eval_meta_bool(f, op, args)
         elif op == "present":
-            return f.has_attribute(args[0])
-        else:
-            # 
-            name, value = args
-            attr_value = f.get_attribute(name, None)
-            if attr_value is None:
-                return False
-            if op == "<":          return attr_value < value
-            elif op == ">":    
-                #print("evaluate_meta_expression: > :", attr_value, value)    
-                return attr_value > value
-            elif op == "<=":       return attr_value <= value
-            elif op == ">=":       return attr_value >= value
-            elif op in ("==",'='): 
-                #print("evaluate_meta_expression:", repr(attr_value), repr(value))
-                return attr_value == value
-            elif op == "!=":       return attr_value != value
-            # - fix elif op == "in":       return value in attr_value       # exception, e.g.   123 in event_list
-            else:
-                raise ValueError("Invalid comparison operator '%s' in %s" % (op, meta_expression))
+            return args[0] in metadata
+        elif op == "in_set":
+            left, right = args
+            vset = set(list(right))
+            if left.T == "scalar":
+                aname = left["name"]
+                return aname in metadata and metadata[aname] in vset
+            elif left.T == "array_any":
+                aname = left["name"]
+                if not aname in metadata:  return False
+                lst = metadata[aname]
+                if not isinstance(lst, list):   return False
+                for x in lst:
+                    if x in vset:  return True
+                else:
+                    return False
+            elif left.T == "array_subscript":
+                aname = left["name"]
+                inx = left["index"]
+                if not aname in metadata:  return False
+                lst = metadata[aname]
+                try:    v = lst[inx]
+                except: return False
+                return v in vset
+        elif op == "in_range":
+            left, right = args
+            low, high = right["low"], right["high"]
+            if left.T == "scalar":
+                aname = left["name"]
+                try:    return aname in metadata and metadata[aname] >= low and metadata[aname] <= high
+                except: return False
+            elif left.T == "array_any":
+                aname = left["name"]
+                if not aname in f:  return False
+                lst = metadata[aname]
+                if isinstance(lst, dict):
+                    attr_values = lst.values()
+                elif isinstance(lst, list):
+                    attr_values = lst
+                else:
+                    return False
+                for x in attr_values:
+                    if x >= low and x <= high:  return True
+                else:
+                    return False
+            elif left.T == "array_subscript":
+                aname = left["name"]
+                inx = left["index"]
+                if not aname in metadata:  return False
+                lst = metadata[aname]
+                try:    v = lst[inx]
+                except: return False
+                return v >= low and v <= high                    
+        elif op == "cmp_op":
+            cmp_op = meta_expression["op"]
+            left, right = args
+            #print("cmp_op: left:", left.pretty())
+            value = right["value"]
+            if left.T == "scalar":
+                aname = left["name"]
+                try:    
+                    result = aname in metadata and self.do_cmp_op(metadata[aname], cmp_op, value)
+                    #print("result:", result)
+                    return result
+                except: return False
+            elif left.T == "array_any":
+                aname = left["name"]
+                lst = metadata.get(aname)
+                #print("lst:", lst)
+                if lst is None:  return False
+                if isinstance(lst, dict):
+                    attr_values = lst.values()
+                elif isinstance(lst, list):
+                    attr_values = lst
+                else:
+                    return False
+                for av in attr_values:
+                    #print("comparing", av, cmp_op, value)
+                    if self.do_cmp_op(av, cmp_op, value):
+                        return True
+                else:
+                    return False
+            elif left.T == "array_subscript":
+                aname = left["name"]
+                inx = left["index"]
+                lst = metadata.get(aname)
+                if lst is None:  return False
+                try:    av = lst[inx]
+                except: return False
+                return  self.do_cmp_op(av, cmp_op, value)                
+        raise ValueError("Invalid expression:\n"+meta_expression.pretty())
 
-def parse_query(text):
+def parse_query(text, debug=False):
     # remove comments
     out = []
     for l in text.split("\n"):
@@ -784,9 +906,11 @@ def parse_query(text):
     text = '\n'.join(out)
     
     parsed = _Parser.parse(text)
-    print("--- parsed ---\n", PostParser().transform(parsed).pretty())
+    if debug:
+        print("--- parsed ---\n", PostParser().transform(parsed).pretty())
     converted = _Converter().convert(parsed)
-    print("--- converted ---\n", converted)
+    if debug:
+        print("--- converted ---\n", converted)
     return converted
 
 class MQLQuery(object):

@@ -21,39 +21,38 @@ Update file metadata:
 
     update <options> @<JSON file with metadata>
     update <options> '<JSON expression>'
+
+        -r|--replace          - replace metadata, otherwise update
+
+        list files by name
         -N|--namespace <default namespace>           - default namespace for files
+        -n|--names <file namespace>:<file name>[,...]
+        -n|--names -          - read the list from stdin
+        -n|--names @<file>    - read the list from file
+
+        list files by file id
+        -i|--ids <file id>[,...] 
+        -i|--ids -            - read the list from stdin
+        -i|--ids @<file>      - read the list from file
+
         
-        -n|--names <file namespace>:<file name>[,...] <dataset namespace>:<dataset name>
-        -n|--names=@       <dataset namespace>:<dataset name>   - read the list from stdin
-        -n|--names=@<file> <dataset namespace>:<dataset name>   - read the list from file
-        
-        -i|--ids <file id>[,...] <dataset namespace>:<dataset name>
-        -i|--ids=@       <dataset namespace>:<dataset name>     - read the list from stdin
-        -i|--ids=@<file> <dataset namespace>:<dataset name>     - read the list from file
-        
-
-Update files:
-
-    update <options> <JSON file with file data>
-        -N|--namespace <default namespace>           - default namespace for files
-        --sample                                     - print JSON file sample
-
-
 Add file(s) to dataset:
 
-    Add files by file name:
-    add -n|--names <file namespace>:<file name>[,...] <dataset namespace>:<dataset name>
-    add -n|--names=@       <dataset namespace>:<dataset name>   - read the list from stdin
-    add -n|--names=@<file> <dataset namespace>:<dataset name>   - read the list from file
-    
-    Add files by file id:
-    add -i|--ids <file id>[,...] <dataset namespace>:<dataset name>
-    add -i|--ids=@       <dataset namespace>:<dataset name>     - read the list from stdin
-    add -i|--ids=@<file> <dataset namespace>:<dataset name>     - read the list from file
+    add <options> <dataset namespace>:<dataset name>
 
-    add -j|--json <json file> <dataset namespace>:<dataset name>
-    add --sample                                        - print sample JSON file
-        -N|--namespace <default namespace>              - default namespace for files and dataset
+        list files by name
+        -N|--namespace <default namespace>           - default namespace for files
+        -n|--names <file namespace>:<file name>[,...]
+        -n|--names -          - read the list from stdin
+        -n|--names @<file>    - read the list from file
+        
+        list files by file id
+        -i|--ids <file id>[,...] 
+        -i|--ids -            - read the list from stdin
+        -i|--ids @<file>      - read the list from file
+
+        read file list from JSON file
+        -j|--json <json file>
 """
 
 def read_file_list(opts):
@@ -68,9 +67,11 @@ def read_file_list(opts):
         print()
         print(Usage)
         sys.exit(2)
-
-    if source.startswith("@"):
-        source = sys.stdin if source == "@" else open(source[1:], "r")
+        
+    if source == "-":
+        source = sys.stdin
+    elif source.startswith("@"):
+        source = open(source[1:], "r")
         lst = (x.strip() for x in source.readlines())
     else:
         lst = source.split(",")
@@ -218,7 +219,9 @@ def do_update(config, client, args):
         
     meta = args[0]
     if meta.startswith('@'):
-        meta = json.load(open(meta, "r"))
+        meta = json.load(open(meta[1:], "r"))
+    elif meta == "-":
+        meta = json.load(sys.stdin)
     else:
         meta = json.loads(" ".join(args))
 

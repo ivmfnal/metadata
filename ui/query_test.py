@@ -53,9 +53,11 @@ elif cmd == "run":
     qtext = " ".join(args)
     config = yaml.load(open(config, "r").read(), Loader=yaml.SafeLoader)["database"]
     print("Query text:'%s'" % (qtext,))
-    q = parse_query(qtext)
+    q = parse_query(qtext, debug=True)
+    #print("connecting to db...")
     db = connect(config)
-    results = q.run(db)
+    #print("connected to db")
+    results = q.run(db, debug=True)
     print("Query results:")
     for r in results:
         print(r)
